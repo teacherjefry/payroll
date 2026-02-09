@@ -1188,22 +1188,25 @@
                 const docSnap = await getDoc(docRef);
                 if (docSnap.exists()) {
                     const data = docSnap.data();
+                    // Admin Code
                     if (data.adminCode) {
                         adminCode = data.adminCode;
                         window.setAdminCode(data.adminCode);
                     }
+                    // Logo
                     if (data.logo) {
                         localStorage.setItem('neerada_school_logo', data.logo);
                         window.updateLogoDOM(data.logo);
                     }
-                    if (data.theme) window.setTheme(data.theme, false); // false = don't save back to DB loop
+                    // Theme
+                    if (data.theme) window.setTheme(data.theme, false);
                     
-                    // Check Lock State from Cloud
+                    // Lock State
                     if (data.isLocked === true) {
                          localStorage.setItem('neerada_locked', 'true');
                          if(data.lockMsg) localStorage.setItem('neerada_lock_msg', data.lockMsg);
                          window.showLockScreen();
-                    } else if (data.isLocked === false && localStorage.getItem('neerada_locked') === 'true') {
+                    } else if (data.isLocked === false) {
                          // If cloud says unlocked but local is locked, unlock it (sync behavior)
                          localStorage.removeItem('neerada_locked');
                          document.getElementById('system-lock-overlay').classList.add('hidden');
@@ -1990,12 +1993,76 @@
         window.sendWhatsApp = () => { if (!selectedEmployee) return; const phone = selectedEmployee.whatsapp || ""; const text = encodeURIComponent(constructPayslipMessage()); window.open(`https://wa.me/${phone.replace(/\D/g, '')}?text=${text}`, '_blank'); };
         window.sendEmail = () => { if (!selectedEmployee) return; const email = selectedEmployee.email || ""; const subject = encodeURIComponent(`Payslip - ${editorMonth} ${editorYear} - ${selectedEmployee.name}`); const body = encodeURIComponent(constructPayslipMessage().replace(/\*/g, '')); window.open(`mailto:${email}?subject=${subject}&body=${body}`, '_self'); };
         window.saveEmployeePayrollData = async () => { const key = `${editorYear}-${editorMonth}`; if (!selectedEmployee.payrollHistory) selectedEmployee.payrollHistory = {}; selectedEmployee.payrollHistory[key] = JSON.parse(JSON.stringify(currentPayrollState)); selectedEmployee.lastModified = new Date().toISOString(); await transact(STORE_EMPLOYEES, 'readwrite', (s) => s.put(selectedEmployee)); window.updateDashboardStats(); renderEmployeeList(); alert("Saved!"); };
-        window.handleLogoUpload = (input) => { const reader = new FileReader(); reader.onload = (e) => { const dataUrl = e.target.result; localStorage.setItem('neerada_school_logo', dataUrl); window.saveGlobalSettings({ logo: dataUrl }); window.location.reload(); }; if (input.files[0]) reader.readAsDataURL(input.files[0]); };
+        
+        // --- NEW: LOGO RESIZING & COMPRESSION FOR FIRESTORE ---
+        window.handleLogoUpload = (input) => {
+            const file = input.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    // Constrain dimensions to max 300px to ensure base64 string fits in Firestore doc (1MB limit)
+                    const MAX_SIZE = 300; 
+                    let width = img.width;
+                    let height = img.height;
+                    
+                    if (width > height) {
+                        if (width > MAX_SIZE) {
+                            height *= MAX_SIZE / width;
+                            width = MAX_SIZE;
+                        }
+                    } else {
+                        if (height > MAX_SIZE) {
+                            width *= MAX_SIZE / height;
+                            height = MAX_SIZE;
+                        }
+                    }
+                    
+                    canvas.width = width;
+                    canvas.height = height;
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    // Compress to JPEG 0.8 quality
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                    
+                    // Update Local State
+                    localStorage.setItem('neerada_school_logo', dataUrl);
+                    window.updateLogoDOM(dataUrl);
+                    
+                    // Save to Firestore
+                    window.saveGlobalSettings({ logo: dataUrl });
+                    alert("Logo updated and synced to cloud.");
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+
         window.handleProfileUpload = (input) => { const file = input.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = (e) => { tempProfilePic = e.target.result; const prev = document.getElementById('form-preview-pic'); prev.src = tempProfilePic; prev.classList.remove('hidden'); document.getElementById('form-default-icon').classList.add('hidden'); document.getElementById('delete-modal-photo-btn').classList.remove('hidden'); }; reader.readAsDataURL(file); };
         window.clearModalPhoto = () => { tempProfilePic = null; document.getElementById('form-profile-pic').value = ""; const prev = document.getElementById('form-preview-pic'); prev.src = ""; prev.classList.add('hidden'); document.getElementById('form-default-icon').classList.remove('hidden'); document.getElementById('delete-modal-photo-btn').classList.add('hidden'); };
         window.deleteEmployee = async (id) => { if (!confirm("Are you sure you want to delete this staff member? This action cannot be undone.")) return; await transact(STORE_EMPLOYEES, 'readwrite', s => s.delete(id)); employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); if (selectedEmployee && selectedEmployee.id === id) { selectedEmployee = null; document.getElementById('editor-area').classList.add('hidden'); document.getElementById('empty-state').classList.remove('hidden'); } renderEmployeeList(); renderDeptSidebar(); window.updateDashboardStats(); };
         window.filterModalDepts = (preselectValue = null) => { const campus = document.getElementById('form-campus').value; const deptSelect = document.getElementById('form-department'); const currentVal = preselectValue || deptSelect.value; const allDepts = getOrderedDepartments(); const filteredOptions = allDepts.filter(d => { const isAcademic = ACADEMIC_DEPTS.includes(d); const isGS = GS_DEPTS.includes(d); if (campus === 'General Services') return isGS || (!isAcademic && !isGS); else return isAcademic || (!isAcademic && !isGS); }); deptSelect.innerHTML = filteredOptions.map(d => `<option value="${d}">${d}</option>`).join(''); if (filteredOptions.includes(currentVal)) { deptSelect.value = currentVal; } else if (filteredOptions.length > 0) { deptSelect.value = filteredOptions[0]; } window.toggleBankFields(); };
         
+        // --- NEW: Toggle Bank Fields helper ---
+        window.toggleBankFields = () => {
+            const deptSelect = document.getElementById('form-department');
+            const usdContainer = document.getElementById('bank-usd-container');
+            if(deptSelect && usdContainer) {
+                const val = deptSelect.value;
+                if(val === 'English' || val.includes('Accounts') || val.includes('Admin')) {
+                    usdContainer.classList.remove('hidden');
+                } else {
+                    usdContainer.classList.add('hidden');
+                    document.getElementById('form-bank-usd').value = '';
+                }
+            }
+        };
+
         window.openStaffModal = (id) => { 
             document.getElementById('add-form').reset(); document.getElementById('form-id').value = ""; window.clearModalPhoto(); 
             // Clear warning
@@ -3006,12 +3073,18 @@
                                 let newEarnings = [];
                                 const existingEarningsSet = new Set(c.earnings);
                                 laoEarningsStruct.forEach(field => {
-                                    newEarnings.push(field);
-                                    existingEarningsSet.delete(field);
+                                    if (existingEarningsSet.has(field)) {
+                                        newEarnings.push(field);
+                                        existingEarningsSet.delete(field);
+                                    }
                                 });
+                                // Add remaining custom fields
                                 existingEarningsSet.forEach(field => {
                                     newEarnings.push(field);
                                 });
+                                // Fallback if crucial fields missing (unlikely if strictly followed logic, but safe)
+                                if (newEarnings.length === 0) newEarnings = [...laoEarningsStruct];
+                                
                                 c.earnings = newEarnings;
                             }
                             await transact(STORE_CONFIG, 'readwrite', s => s.put(c));
@@ -3139,8 +3212,8 @@
                  if(d.otHours > 0) msg += `OT: ${d.otHours} hrs ($${d.otRate}/hr)\n`;
             } else {
                  cfg.earnings.forEach(f => {
-                     const val = currentPayrollState[f] || 0;
-                     if(val > 0) msg += `${f}: ${formatMoney(val)}\n`;
+                      const val = currentPayrollState[f] || 0;
+                      if(val > 0) msg += `${f}: ${formatMoney(val)}\n`;
                  });
                  if(currentPayrollState.overtimeAmount > 0) msg += `OT: ${formatMoney(currentPayrollState.overtimeAmount)}\n`;
             }
