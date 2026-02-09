@@ -1139,52 +1139,49 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        // ==========================================
-        // PASTE YOUR FIREBASE CONFIG HERE
-        // ==========================================
-        const firebaseConfig = {
-             apiKey: "AIzaSyBHhZ_ltc1qs49erv7pzeczp5qlnxd46aufzapsmzpa7y73ct",
-             authDomain: "neerada-payroll.firebaseapp.com",
-             projectId: "neerada-payroll",
-             storageBucket: "neerada-payroll.firebasestorage.app",
-             messagingSenderId: "974433788853",
-             appId: "1:974433788853:web:be6eadac8ec50e3808affc"
-        };
-        // ==========================================
+        // Environment variables
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
         let dbFirestore;
         let auth;
-        let adminCode = "0000"; // Default, will be overwritten by Firebase
+        let adminCode = "0000"; 
 
-        // Attempt to initialize Firebase
-        try {
-            if (firebaseConfig.apiKey) {
-                const app = initializeApp(firebaseConfig);
-                dbFirestore = getFirestore(app);
-                auth = getAuth(app);
-                
-                // Auth anonymously to read settings
-                signInAnonymously(auth).then(() => {
-                    console.log("Firebase Connected");
-                    window.updateConnectionStatus(true);
-                    loadGlobalSettings();
-                }).catch((error) => {
-                    console.error("Firebase Auth Error:", error);
-                    window.updateConnectionStatus(false);
-                });
-            } else {
-                console.log("Firebase config missing. Using local defaults.");
-            }
-        } catch (e) {
-            console.error("Firebase init failed:", e);
+        async function initFirebase() {
+             if (!firebaseConfig) {
+                 console.warn("Firebase config not found. Cloud features disabled.");
+                 return;
+             }
+
+             try {
+                 const app = initializeApp(firebaseConfig);
+                 dbFirestore = getFirestore(app);
+                 auth = getAuth(app);
+
+                 if (initialAuthToken) {
+                     await signInWithCustomToken(auth, initialAuthToken);
+                 } else {
+                     await signInAnonymously(auth);
+                 }
+                 
+                 console.log("Firebase Connected");
+                 window.updateConnectionStatus(true);
+                 await loadGlobalSettings();
+
+             } catch (error) {
+                 console.error("Firebase Init/Auth Error:", error);
+                 window.updateConnectionStatus(false);
+             }
         }
 
         async function loadGlobalSettings() {
             if (!dbFirestore) return;
             try {
-                const docRef = doc(dbFirestore, "app_settings", "main");
+                // Correct path: artifacts/{appId}/public/data/app_settings/main
+                const docRef = doc(dbFirestore, "artifacts", appId, "public", "data", "app_settings", "main");
                 const docSnap = await getDoc(docRef);
                 if (docSnap.exists()) {
                     const data = docSnap.data();
@@ -1200,7 +1197,6 @@
                     }
                     // Theme
                     if (data.theme) {
-                        // Apply theme without triggering redundant save
                         window.setTheme(data.theme, false);
                     }
                     
@@ -1210,7 +1206,6 @@
                          if(data.lockMsg) localStorage.setItem('neerada_lock_msg', data.lockMsg);
                          window.showLockScreen();
                     } else if (data.isLocked === false) {
-                         // If cloud says unlocked but local is locked, unlock it (sync behavior)
                          localStorage.removeItem('neerada_locked');
                          document.getElementById('system-lock-overlay').classList.add('hidden');
                          document.getElementById('system-lock-overlay').classList.remove('flex');
@@ -1224,7 +1219,7 @@
         window.saveGlobalSettings = async (updates) => {
             if (!dbFirestore) return;
             try {
-                const docRef = doc(dbFirestore, "app_settings", "main");
+                const docRef = doc(dbFirestore, "artifacts", appId, "public", "data", "app_settings", "main");
                 await setDoc(docRef, updates, { merge: true });
             } catch (e) {
                 console.error("Error saving settings:", e);
@@ -1242,6 +1237,9 @@
 
         // Expose functions globally for legacy script access
         window.dbFirestore = dbFirestore;
+        
+        // Start Firebase Init
+        initFirebase();
     </script>
 
     <script>
@@ -1366,7 +1364,7 @@
                     const msg = prompt("Enter lock message (optional):") || "System Unavailable";
                     localStorage.setItem('neerada_locked', 'true');
                     localStorage.setItem('neerada_lock_msg', msg);
-                    window.saveGlobalSettings({ isLocked: true, lockMsg: msg });
+                    if(window.saveGlobalSettings) window.saveGlobalSettings({ isLocked: true, lockMsg: msg });
                     window.showLockScreen();
                 } else {
                     alert("Access Denied");
@@ -1394,7 +1392,7 @@
                 if (code === storedCode) {
                     localStorage.removeItem('neerada_locked');
                     localStorage.removeItem('neerada_lock_msg');
-                    window.saveGlobalSettings({ isLocked: false, lockMsg: "" });
+                    if(window.saveGlobalSettings) window.saveGlobalSettings({ isLocked: false, lockMsg: "" });
                     document.getElementById('system-lock-overlay').classList.add('hidden');
                     document.getElementById('system-lock-overlay').classList.remove('flex');
                     
@@ -3149,6 +3147,11 @@
                 if(d.increase > 0) html += `<tr><td class="py-1">Increase</td><td class="text-right font-mono">${formatUSD(d.increase)}</td></tr>`;
                 if(d.earningsOthersUSD > 0) html += `<tr><td class="py-1">Others</td><td class="text-right font-mono">${formatUSD(d.earningsOthersUSD)}</td></tr>`;
                 if(d.otHours > 0) html += `<tr><td class="py-1">Overtime (${d.otHours} hrs @ ${d.otRate})</td><td class="text-right font-mono">${formatUSD(d.otHours * d.otRate)}</td></tr>`;
+                // Extra Work LAK for English
+                if(d.itLAK > 0) html += `<tr><td class="py-1 text-purple-600">IT (LAK)</td><td class="text-right font-mono text-purple-600">${formatMoney(d.itLAK)}</td></tr>`;
+                if(d.extraWorkOthersLAK > 0) html += `<tr><td class="py-1 text-purple-600">Extra Work (LAK)</td><td class="text-right font-mono text-purple-600">${formatMoney(d.extraWorkOthersLAK)}</td></tr>`;
+                if(d.stipendLAK > 0) html += `<tr><td class="py-1 text-purple-600">Stipend (LAK)</td><td class="text-right font-mono text-purple-600">${formatMoney(d.stipendLAK)}</td></tr>`;
+
             } else {
                 cfg.earnings.forEach(f => {
                     const val = currentPayrollState[f] || 0;
