@@ -163,7 +163,7 @@
             .text-blue-900 { color: #1e3a8a !important; }
             .text-white { color: white !important; }
             .print-info-container { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 15px !important; margin-bottom: 20px !important; background-color: #eff6ff !important; padding: 15px !important; border-radius: 8px !important; border: 1px solid #dbeafe !important; }
-            #net-pay-block { color: white !important; }
+            #net-pay-block { color: white !important; background-color: #1e3a8a !important; }
         }
     </style>
 </head>
@@ -588,15 +588,15 @@
                                 <!-- Loan Record Summary -->
                                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                                     <div class="p-4 border-b border-gray-100 bg-orange-50 flex justify-between items-center">
-                                        <h3 id="active-loans-header" class="font-bold text-orange-800 flex items-center gap-2"><i data-lucide="credit-card" class="w-4 h-4"></i> Active Loan Records</h3>
-                                        <div class="flex gap-2">
-                                            <button onclick="window.bulkCopyLoanPayments()" class="p-1.5 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-full transition-colors flex items-center gap-1 text-[10px] font-bold shadow-sm border border-blue-200">
-                                                <i data-lucide="repeat" class="w-3.5 h-3.5"></i> Copy Prev Month
-                                            </button>
-                                            <button onclick="window.openGlobalArchives()" class="p-1.5 bg-orange-100 text-orange-700 hover:bg-orange-200 rounded-full transition-colors flex items-center gap-1 text-[10px] font-bold shadow-sm border border-orange-200">
-                                                <i data-lucide="folder-clock" class="w-3.5 h-3.5"></i> All Archives
-                                            </button>
-                                        </div>
+                                            <h3 id="active-loans-header" class="font-bold text-orange-800 flex items-center gap-2"><i data-lucide="credit-card" class="w-4 h-4"></i> Active Loan Records</h3>
+                                            <div class="flex gap-2">
+                                                <button onclick="window.bulkCopyLoanPayments()" class="p-1.5 bg-blue-100 text-blue-700 hover:bg-blue-200 rounded-full transition-colors flex items-center gap-1 text-[10px] font-bold shadow-sm border border-blue-200">
+                                                    <i data-lucide="repeat" class="w-3.5 h-3.5"></i> Copy Prev Month
+                                                </button>
+                                                <button onclick="window.openGlobalArchives()" class="p-1.5 bg-orange-100 text-orange-700 hover:bg-orange-200 rounded-full transition-colors flex items-center gap-1 text-[10px] font-bold shadow-sm border border-orange-200">
+                                                    <i data-lucide="folder-clock" class="w-3.5 h-3.5"></i> All Archives
+                                                </button>
+                                            </div>
                                     </div>
                                     <div class="overflow-x-auto">
                                         <table class="w-full text-sm text-left">
@@ -1830,28 +1830,28 @@
                 const v = parseFloat(d[f] || 0); // Use the calculated copy 'd'
                 
                 if (isStandardLaoDept) {
-                     // Find index of current field and start field in the config
-                     const earnList = cfg.earnings; 
-                     const startIndex = earnList.indexOf(LAO_FIELDS.start);
-                     const currIndex = earnList.indexOf(f);
-                     
-                     // Rule: Add Start (index 9) and everything after it. Ignore everything before.
-                     // Also ignore 'Basic Pay (USD)' and 'Exchange Rate (LAK)' if they appear (defensive)
-                     if (f !== 'Basic Pay (USD)' && f !== 'Exchange Rate (LAK)') {
-                         if (startIndex !== -1) {
+                      // Find index of current field and start field in the config
+                      const earnList = cfg.earnings; 
+                      const startIndex = earnList.indexOf(LAO_FIELDS.start);
+                      const currIndex = earnList.indexOf(f);
+                      
+                      // Rule: Add Start (index 9) and everything after it. Ignore everything before.
+                      // Also ignore 'Basic Pay (USD)' and 'Exchange Rate (LAK)' if they appear (defensive)
+                      if (f !== 'Basic Pay (USD)' && f !== 'Exchange Rate (LAK)') {
+                          if (startIndex !== -1) {
                              if (currIndex >= startIndex) {
                                  te += v;
                              }
-                         } else {
+                          } else {
                              // Fallback if 'Start' field missing from config
                              if (f !== LAO_FIELDS.basic) te += v; 
-                         }
-                     }
+                          }
+                      }
                 } else {
-                     // General Services & others: Sum everything except informational fields
-                     if (!['Basic Pay (USD)', 'Exchange Rate (LAK)', 'ຊົ່ວໂມງສອນທັງໝົດ (Total Hours Taught)', 'ອັດຕາຊົ່ວໂມງ (Rate per Hour)'].includes(f)) {
+                      // General Services & others: Sum everything except informational fields
+                      if (!['Basic Pay (USD)', 'Exchange Rate (LAK)', 'ຊົ່ວໂມງສອນທັງໝົດ (Total Hours Taught)', 'ອັດຕາຊົ່ວໂມງ (Rate per Hour)'].includes(f)) {
                         te += v;
-                     }
+                      }
                 }
             });
 
@@ -2882,54 +2882,137 @@
                 } catch (err) { alert("Error importing data: " + err.message); console.error("Import Error Details:", err); } 
             }; reader.readAsText(file); input.value = ''; 
         };
-        window.openGlobalArchives = () => {
-            const list = document.getElementById('global-archive-list');
-            let rows = "";
-            let hasData = false;
-            employees.forEach(emp => {
-                if(emp.archivedLoans && emp.archivedLoans.length > 0) {
-                    hasData = true;
-                    emp.archivedLoans.forEach(l => {
-                        rows += `<tr class="border-b border-gray-50"><td class="px-4 py-3 font-medium text-gray-800">${emp.name}</td><td class="px-4 py-3 text-gray-500 text-xs">${emp.department}</td><td class="px-4 py-3 text-gray-700">${l.description}</td><td class="px-4 py-3 text-center text-xs text-gray-500">${l.dateAdded}</td><td class="px-4 py-3 text-right font-mono">${formatMoney(l.total)}</td><td class="px-4 py-3 text-center"><span class="px-2 py-1 bg-green-100 text-green-700 rounded-full text-[10px] font-bold">Paid Off</span></td></tr>`;
-                    });
-                }
-            });
-            list.innerHTML = hasData ? rows : `<tr><td colspan="6" class="p-6 text-center text-gray-400">No archived loans found.</td></tr>`;
-            document.getElementById('global-archive-modal').classList.remove('hidden');
-            if(window.lucide) lucide.createIcons();
-        };
-
-        window.toggleBankFields = () => { const dept = document.getElementById('form-department').value; const usdField = document.getElementById('bank-usd-container'); if (dept === 'English' || dept.includes('Accounts')) { usdField.classList.remove('hidden'); } else { usdField.classList.add('hidden'); } };
-        window.bulkSavePayroll = () => window.openSaveHistoryModal();
         
+        // --- RENDER PREVIEW FUNCTION (Replaces text in preview pane) ---
+        function renderPreview() {
+            if(!selectedEmployee) return;
+            document.getElementById('prev-name').innerText = selectedEmployee.name;
+            document.getElementById('prev-pos').innerText = selectedEmployee.position;
+            document.getElementById('prev-dept').innerText = selectedEmployee.department;
+            const m = document.getElementById('editor-month').value;
+            const y = document.getElementById('editor-year').value;
+            document.getElementById('prev-id').innerText = generateEmployeeID(selectedEmployee, m, y);
+            document.getElementById('prev-date').innerText = new Date().toLocaleDateString();
+            
+            const dept = selectedEmployee.department;
+            const cfg = departmentConfigs[dept] || { earnings: [], deductions: [] };
+            
+            let html = '<div class="space-y-4">';
+            
+            // EARNINGS
+            html += '<div class="border-b pb-2"><h4 class="font-bold text-xs uppercase text-gray-500 mb-2">Earnings</h4>';
+            html += '<table class="w-full text-xs">';
+            
+            if (dept === 'English') {
+                const d = currentPayrollState;
+                html += `<tr><td class="py-1">Basic Pay</td><td class="text-right font-mono">${formatUSD(d.basicPay)}</td></tr>`;
+                if(d.accumulated > 0) html += `<tr><td class="py-1">Accumulated</td><td class="text-right font-mono">${formatUSD(d.accumulated)}</td></tr>`;
+                if(d.increase > 0) html += `<tr><td class="py-1">Increase</td><td class="text-right font-mono">${formatUSD(d.increase)}</td></tr>`;
+                if(d.earningsOthersUSD > 0) html += `<tr><td class="py-1">Others</td><td class="text-right font-mono">${formatUSD(d.earningsOthersUSD)}</td></tr>`;
+                if(d.otHours > 0) html += `<tr><td class="py-1">Overtime (${d.otHours} hrs @ ${d.otRate})</td><td class="text-right font-mono">${formatUSD(d.otHours * d.otRate)}</td></tr>`;
+            } else {
+                cfg.earnings.forEach(f => {
+                    const val = currentPayrollState[f] || 0;
+                    if(val > 0) {
+                        html += `<tr><td class="py-1 text-gray-700">${f}</td><td class="text-right font-mono text-gray-900 font-medium">${formatMoney(val)}</td></tr>`;
+                    }
+                });
+                if(currentPayrollState.overtimeAmount > 0) {
+                    html += `<tr><td class="py-1 text-blue-700 font-bold">Overtime</td><td class="text-right font-mono text-blue-700 font-bold">${formatMoney(currentPayrollState.overtimeAmount)}</td></tr>`;
+                }
+            }
+            html += '</table></div>';
+            
+            // DEDUCTIONS
+            html += '<div class="border-b pb-2"><h4 class="font-bold text-xs uppercase text-red-500 mb-2">Deductions</h4>';
+            html += '<table class="w-full text-xs text-red-600">';
+            
+            let totalDed = 0;
+            if (dept === 'English') {
+                const d = currentPayrollState;
+                if(d.profTax > 0) { html += `<tr><td class="py-1">Prof. Tax</td><td class="text-right font-mono">-${formatUSD(d.profTax)}</td></tr>`; totalDed += d.profTax; }
+                if(d.absences > 0) { html += `<tr><td class="py-1">Absences</td><td class="text-right font-mono">-${formatUSD(d.absences)}</td></tr>`; totalDed += d.absences; }
+                if(d.visa > 0) { html += `<tr><td class="py-1">Visa</td><td class="text-right font-mono">-${formatUSD(d.visa)}</td></tr>`; totalDed += d.visa; }
+                if(d.deductionsOthersUSD > 0) { html += `<tr><td class="py-1">Others</td><td class="text-right font-mono">-${formatUSD(d.deductionsOthersUSD)}</td></tr>`; totalDed += d.deductionsOthersUSD; }
+                // LAK Deductions converted for display or shown separate? Usually shown as deductions from final LAK.
+            } else {
+                cfg.deductions.forEach(f => {
+                    const val = currentPayrollState[f] || 0;
+                    if(val > 0) {
+                        html += `<tr><td class="py-1">${f}</td><td class="text-right font-mono">-${formatMoney(val)}</td></tr>`;
+                        totalDed += val;
+                    }
+                });
+            }
+            
+            // Loan Deduction
+            if (currentPayrollState.loanDeduction > 0) {
+                 const desc = currentPayrollState.loanDesc ? ` (${currentPayrollState.loanDesc})` : '';
+                 html += `<tr><td class="py-1 font-bold">Loan Repayment${desc}</td><td class="text-right font-mono font-bold">-${formatMoney(currentPayrollState.loanDeduction)}</td></tr>`;
+            }
+            
+            html += '</table></div>';
+            
+            // NET PAY
+            const result = calculatePayrollFromState(selectedEmployee, currentPayrollState);
+            html += `<div id="net-pay-block" class="mt-4 p-3 bg-blue-900 text-white rounded-lg flex justify-between items-center shadow-lg">
+                <span class="text-sm font-bold uppercase">Net Pay</span>
+                <div class="text-right">
+                    <div class="text-xl font-mono font-bold">${formatMoney(result.lak)}</div>
+                    ${result.usd > 0 ? `<div class="text-xs text-blue-200">Cash USD: ${formatUSD(result.usd)}</div>` : ''}
+                </div>
+            </div>`;
+            
+            // Notes
+            if (currentPayrollState.notes) {
+                html += `<div class="mt-4 p-3 bg-yellow-50 border border-yellow-100 rounded text-xs text-gray-600 italic">Note: ${currentPayrollState.notes}</div>`;
+            }
+
+            html += '</div>';
+            document.getElementById('preview-content').innerHTML = html;
+        }
+
+        function constructPayslipMessage() {
+            if(!selectedEmployee) return "";
+            const m = document.getElementById('editor-month').value;
+            const y = document.getElementById('editor-year').value;
+            const result = calculatePayrollFromState(selectedEmployee, currentPayrollState);
+            
+            let msg = `*PAYSLIP: ${selectedEmployee.name}*\n`;
+            msg += `Period: ${m} ${y}\n`;
+            msg += `------------------------\n`;
+            
+            const dept = selectedEmployee.department;
+            const cfg = departmentConfigs[dept] || { earnings: [], deductions: [] };
+            
+            if (dept === 'English') {
+                 const d = currentPayrollState;
+                 msg += `Basic Pay: ${formatUSD(d.basicPay)}\n`;
+                 if(d.otHours > 0) msg += `OT: ${d.otHours} hrs ($${d.otRate}/hr)\n`;
+                 // Add more fields if needed
+            } else {
+                 cfg.earnings.forEach(f => {
+                     const val = currentPayrollState[f] || 0;
+                     if(val > 0) msg += `${f}: ${formatMoney(val)}\n`;
+                 });
+                 if(currentPayrollState.overtimeAmount > 0) msg += `OT: ${formatMoney(currentPayrollState.overtimeAmount)}\n`;
+            }
+            
+            msg += `------------------------\n`;
+            if (currentPayrollState.loanDeduction > 0) msg += `Loan Payment: -${formatMoney(currentPayrollState.loanDeduction)}\n`;
+            
+            msg += `*NET PAY: ${formatMoney(result.lak)}*\n`;
+            if(result.usd > 0) msg += `(Cash USD: ${formatUSD(result.usd)})\n`;
+            
+            return msg;
+        }
+
         window.onload = function() { 
             lucide.createIcons();
             // Load logo immediately for landing page
             const savedLogo = localStorage.getItem('neerada_school_logo');
             if(savedLogo) {
-                 // Logic to update landing page DOM immediately
-                 const landingLogo = document.getElementById('landing-custom-logo');
-                 const landingIcon = document.getElementById('landing-logo-container');
-                 if(landingLogo && landingIcon) {
-                     landingLogo.src = savedLogo;
-                     landingLogo.classList.remove('hidden');
-                     landingIcon.classList.add('hidden');
-                 }
-                 // Also update preview/header just in case
-                 const headerLogo = document.getElementById('header-custom-logo');
-                 if(headerLogo) {
-                     headerLogo.src = savedLogo;
-                     headerLogo.classList.remove('hidden');
-                 }
-                 const prevLogo = document.getElementById('prev-school-logo');
-                 if (prevLogo) {
-                     prevLogo.src = savedLogo;
-                     prevLogo.classList.remove('hidden');
-                 }
-                 const favEl = document.getElementById('app-favicon');
-                 const appleEl = document.getElementById('app-apple-touch-icon');
-                 if (favEl) favEl.href = savedLogo;
-                 if (appleEl) appleEl.href = savedLogo;
+                 window.updateLogoDOM(savedLogo);
             }
 
             // Check Lock State Immediately
@@ -2938,16 +3021,14 @@
                 return; // Stop view transitions
             }
 
-            // Restore View State (Fixed) - REPLACED WITH ALWAYS LANDING PAGE
-            // Clear view state to ensure next reload is also landing
-            localStorage.removeItem('neerada_current_view'); 
+            // Clear view state to ensure next reload is also landing (optional security feature)
+            // localStorage.removeItem('neerada_current_view'); 
             
-            // Stay on landing (default)
-            // Auto-exit welcome modal after 4 seconds
+            // Auto-exit welcome modal after 4 seconds if it exists (legacy
             setTimeout(() => {
                 const wm = document.getElementById('welcome-modal');
                 if(wm && !wm.classList.contains('hidden') && !wm.classList.contains('exiting')) {
-                        window.closeWelcome();
+                     wm.classList.add('hidden');
                 }
             }, 4000);
         };
