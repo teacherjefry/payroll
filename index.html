@@ -1193,13 +1193,16 @@
                         adminCode = data.adminCode;
                         window.setAdminCode(data.adminCode);
                     }
-                    // Logo
+                    // Logo - Save to LocalStorage for persistence and fast load
                     if (data.logo) {
                         localStorage.setItem('neerada_school_logo', data.logo);
                         window.updateLogoDOM(data.logo);
                     }
                     // Theme
-                    if (data.theme) window.setTheme(data.theme, false);
+                    if (data.theme) {
+                        // Apply theme without triggering redundant save
+                        window.setTheme(data.theme, false);
+                    }
                     
                     // Lock State
                     if (data.isLocked === true) {
@@ -1338,12 +1341,13 @@
         // --- ADMIN SECURITY ---
         window.handleSecretAdminUpdate = function() {
             window.promptAuth("Security Verification", "When is your birthday?", (answer) => {
+                // Hardcoded check as requested
                 if (answer === "100688") {
                      window.promptAuth("Update Admin Code", "Enter the new numeric code:", (newCode) => {
                          if (newCode && newCode.length >= 4) {
                              window.updateAdminCode(newCode);
                          } else {
-                             alert("Code too short.");
+                             alert("Code too short. Must be at least 4 digits.");
                          }
                      });
                 } else {
@@ -2147,7 +2151,20 @@
         window.handleStaffCSV = (input) => { const file = input.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = async (e) => { const text = e.target.result; const rows = text.split('\n').filter(r => r.trim()); if (rows.length < 2) return alert("Invalid CSV"); for (let i = 1; i < rows.length; i++) { const cols = rows[i].split(',').map(c => c.replace(/^"|"$/g, '').trim()); if (cols.length < 3) continue; const id = 'EMP_' + Date.now() + i; const name = cols[2]; const dept = cols[4]; const pos = cols[5]; await transact(STORE_EMPLOYEES, 'readwrite', s => s.put({ id, name, department: dept, position: pos, payrollHistory: {}, campus: "General Services" })); } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); renderEmployeeList(); renderDeptSidebar(); }; reader.readAsText(file); };
         window.triggerImport = () => document.getElementById('staff-csv-input').click();
         window.deleteAllPhotos = async () => { if (!confirm("Remove all employee photos?")) return; for (const emp of employees) { emp.profilePic = null; await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(emp)); } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); renderEmployeeList(); };
-        window.setTheme = (theme) => { localStorage.setItem('neerada_theme', theme); document.body.className = `view-app theme-${theme}`; window.saveGlobalSettings({ theme: theme }); };
+        
+        // --- UPDATED setTheme FUNCTION (FIXED REDUNDANT WRITE) ---
+        window.setTheme = (theme, save = true) => { 
+            localStorage.setItem('neerada_theme', theme); 
+            if(document.body.classList.contains('view-app')) {
+                document.body.className = `view-app theme-${theme}`; 
+            }
+            // Update selector if it exists
+            const sel = document.getElementById('theme-select');
+            if(sel && sel.value !== theme) sel.value = theme;
+
+            if(save) window.saveGlobalSettings({ theme: theme }); 
+        };
+
         window.downloadCSVReport = () => { 
             const yrFilter = document.getElementById('filter-year').value; 
             const mnFilter = document.getElementById('filter-month').value; 
@@ -3156,6 +3173,9 @@
                 if(d.absences > 0) { html += `<tr><td class="py-1">Absences</td><td class="text-right font-mono">-${formatUSD(d.absences)}</td></tr>`; totalDed += d.absences; }
                 if(d.visa > 0) { html += `<tr><td class="py-1">Visa</td><td class="text-right font-mono">-${formatUSD(d.visa)}</td></tr>`; totalDed += d.visa; }
                 if(d.deductionsOthersUSD > 0) { html += `<tr><td class="py-1">Others</td><td class="text-right font-mono">-${formatUSD(d.deductionsOthersUSD)}</td></tr>`; totalDed += d.deductionsOthersUSD; }
+                // LAK Deductions for English
+                if(d.insuranceLAK > 0) { html += `<tr><td class="py-1">Insurance (LAK)</td><td class="text-right font-mono">-${formatMoney(d.insuranceLAK)}</td></tr>`; }
+                if(d.deductionsOthersLAK > 0) { html += `<tr><td class="py-1">Other LAK Ded.</td><td class="text-right font-mono">-${formatMoney(d.deductionsOthersLAK)}</td></tr>`; }
             } else {
                 cfg.deductions.forEach(f => {
                     const val = currentPayrollState[f] || 0;
