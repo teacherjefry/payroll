@@ -1144,14 +1144,14 @@
         // ==========================================
         // PASTE YOUR FIREBASE CONFIG HERE
         // ==========================================
-      const firebaseConfig = {
-  apiKey: "AIzaSyBHhZ_ltc1qs49erv7pzeczp5qlnxd46aufzapsmzpa7y73ct",
-  authDomain: "neerada-payroll.firebaseapp.com",
-  projectId: "neerada-payroll",
-  storageBucket: "neerada-payroll.firebasestorage.app",
-  messagingSenderId: "974433788853",
-  appId: "1:974433788853:web:be6eadac8ec50e3808affc"
-};
+        const firebaseConfig = {
+             apiKey: "AIzaSyBHhZ_ltc1qs49erv7pzeczp5qlnxd46aufzapsmzpa7y73ct",
+             authDomain: "neerada-payroll.firebaseapp.com",
+             projectId: "neerada-payroll",
+             storageBucket: "neerada-payroll.firebasestorage.app",
+             messagingSenderId: "974433788853",
+             appId: "1:974433788853:web:be6eadac8ec50e3808affc"
+        };
         // ==========================================
 
         let dbFirestore;
@@ -1160,8 +1160,7 @@
 
         // Attempt to initialize Firebase
         try {
-            // Check if user has updated placeholder
-            if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
+            if (firebaseConfig.apiKey) {
                 const app = initializeApp(firebaseConfig);
                 dbFirestore = getFirestore(app);
                 auth = getAuth(app);
@@ -1189,7 +1188,10 @@
                 const docSnap = await getDoc(docRef);
                 if (docSnap.exists()) {
                     const data = docSnap.data();
-                    if (data.adminCode) adminCode = data.adminCode;
+                    if (data.adminCode) {
+                        adminCode = data.adminCode;
+                        window.setAdminCode(data.adminCode);
+                    }
                     if (data.logo) {
                         localStorage.setItem('neerada_school_logo', data.logo);
                         window.updateLogoDOM(data.logo);
@@ -1225,6 +1227,7 @@
 
         window.updateAdminCode = (val) => {
              adminCode = val;
+             window.setAdminCode(val);
              window.saveGlobalSettings({ adminCode: val });
              alert("Admin code updated successfully.");
         };
@@ -1237,6 +1240,10 @@
 
     <script>
         // --- VIEW MANAGEMENT ---
+        let localAdminCode = "0000";
+        window.setAdminCode = (code) => { localAdminCode = code; };
+        window.getAdminCode = () => localAdminCode;
+
         window.launchApp = function(skipAnim = false) {
             // Check Lock
             if (localStorage.getItem('neerada_locked') === 'true') {
@@ -1968,7 +1975,16 @@
 
         window.viewEmployeeHistory = () => { if (!selectedEmployee) return; document.getElementById('hist-emp-name').innerText = selectedEmployee.name; document.getElementById('hist-emp-dept').innerText = selectedEmployee.department; const rows = document.getElementById('hist-rows'); const historyData = selectedEmployee.payrollHistory || {}; const sortedKeys = Object.keys(historyData).sort((a,b) => b.localeCompare(a)); let totalHistoryLAK = 0; let totalHistoryUSD = 0; if (sortedKeys.length === 0) { rows.innerHTML = '<p class="text-center text-gray-400 py-8">No history recorded for this staff member.</p>'; } else { rows.innerHTML = sortedKeys.map(key => { const total = calculatePayrollFromState(selectedEmployee, historyData[key]); totalHistoryLAK += total.lak; totalHistoryUSD += total.usd; return `<div class="flex justify-between items-center p-4 bg-gray-50 rounded-lg border border-gray-100"><div><p class="font-bold text-blue-900">${key}</p><p class="text-xs text-gray-500">Recorded Period</p></div><div class="text-right"><div class="flex flex-col items-end gap-0.5"><span class="font-mono font-bold text-green-700 text-sm">${formatMoney(total.lak)}</span><span class="font-mono font-bold text-blue-600 text-xs">${formatUSD(total.usd)}</span></div><button onclick="window.applyHistoryEntry('${key}')" class="text-[10px] text-gray-400 underline hover:text-blue-600 mt-1">Load to Editor</button></div></div>`; }).join(''); } document.getElementById('hist-total-lak').innerText = formatMoney(totalHistoryLAK); document.getElementById('hist-total-usd').innerText = formatUSD(totalHistoryUSD); document.getElementById('employee-history-modal').classList.remove('hidden'); if (window.lucide) lucide.createIcons(); };
         window.applyHistoryEntry = (key) => { if (!selectedEmployee?.payrollHistory?.[key]) return; currentPayrollState = JSON.parse(JSON.stringify(selectedEmployee.payrollHistory[key])); renderEditor(); document.getElementById('employee-history-modal').classList.add('hidden'); };
-        window.editCurrentStaff = () => { if(selectedEmployee) { window.openStaffModal(selectedEmployee.id); } else { alert("Please select an employee first."); } };
+        
+        // --- FIXED: EDIT STAFF DETAILS ---
+        window.editCurrentStaff = () => { 
+            if(selectedEmployee) { 
+                window.openStaffModal(selectedEmployee.id); 
+            } else { 
+                alert("Please select an employee first."); 
+            } 
+        };
+        
         window.loadPreviousMonthData = () => { if (!selectedEmployee) return; const currMIdx = MONTHS.indexOf(editorMonth); let prevMIdx = currMIdx - 1; let prevYr = parseInt(editorYear); if (prevMIdx < 0) { prevMIdx = 11; prevYr--; } const prevKey = `${prevYr}-${MONTHS[prevMIdx]}`; if (selectedEmployee.payrollHistory && selectedEmployee.payrollHistory[prevKey]) { if (confirm(`Copy data from ${MONTHS[prevMIdx]} ${prevYr}?`)) { currentPayrollState = JSON.parse(JSON.stringify(selectedEmployee.payrollHistory[prevKey])); renderEditor(); } } else { alert(`No data found for ${MONTHS[prevMIdx]} ${prevYr}`); } };
         window.resetCurrentPayroll = () => { if (!selectedEmployee) return; if (confirm("Reset current editor data to zero?")) { currentPayrollState = createInitialState(selectedEmployee.department); renderEditor(); } };
         window.sendWhatsApp = () => { if (!selectedEmployee) return; const phone = selectedEmployee.whatsapp || ""; const text = encodeURIComponent(constructPayslipMessage()); window.open(`https://wa.me/${phone.replace(/\D/g, '')}?text=${text}`, '_blank'); };
@@ -1979,19 +1995,47 @@
         window.clearModalPhoto = () => { tempProfilePic = null; document.getElementById('form-profile-pic').value = ""; const prev = document.getElementById('form-preview-pic'); prev.src = ""; prev.classList.add('hidden'); document.getElementById('form-default-icon').classList.remove('hidden'); document.getElementById('delete-modal-photo-btn').classList.add('hidden'); };
         window.deleteEmployee = async (id) => { if (!confirm("Are you sure you want to delete this staff member? This action cannot be undone.")) return; await transact(STORE_EMPLOYEES, 'readwrite', s => s.delete(id)); employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); if (selectedEmployee && selectedEmployee.id === id) { selectedEmployee = null; document.getElementById('editor-area').classList.add('hidden'); document.getElementById('empty-state').classList.remove('hidden'); } renderEmployeeList(); renderDeptSidebar(); window.updateDashboardStats(); };
         window.filterModalDepts = (preselectValue = null) => { const campus = document.getElementById('form-campus').value; const deptSelect = document.getElementById('form-department'); const currentVal = preselectValue || deptSelect.value; const allDepts = getOrderedDepartments(); const filteredOptions = allDepts.filter(d => { const isAcademic = ACADEMIC_DEPTS.includes(d); const isGS = GS_DEPTS.includes(d); if (campus === 'General Services') return isGS || (!isAcademic && !isGS); else return isAcademic || (!isAcademic && !isGS); }); deptSelect.innerHTML = filteredOptions.map(d => `<option value="${d}">${d}</option>`).join(''); if (filteredOptions.includes(currentVal)) { deptSelect.value = currentVal; } else if (filteredOptions.length > 0) { deptSelect.value = filteredOptions[0]; } window.toggleBankFields(); };
+        
         window.openStaffModal = (id) => { 
             document.getElementById('add-form').reset(); document.getElementById('form-id').value = ""; window.clearModalPhoto(); 
             // Clear warning
             document.getElementById('bank-name-warning').classList.add('hidden');
             document.getElementById('form-bank-name').classList.remove('border-red-500');
+            document.getElementById('modal-title').innerText = "Add Staff";
+            
+            // Initial call to set defaults correctly if adding new
+            document.getElementById('form-campus').value = "Sibounheuang";
+            window.filterModalDepts();
 
-            if(id) { const emp = employees.find(e => String(e.id) === String(id)); if (emp) { document.getElementById('modal-title').innerText = "Edit Staff Details"; document.getElementById('form-id').value = emp.id; document.getElementById('form-name').value = emp.name; document.getElementById('form-position').value = emp.position; document.getElementById('form-bank-name').value = emp.bankAccountName || ""; const targetCampus = emp.campus || (ACADEMIC_DEPTS.includes(emp.department) ? "Sibounheuang" : "General Services"); document.getElementById('form-campus').value = targetCampus; window.filterModalDepts(emp.department); document.getElementById('form-department').value = emp.department; document.getElementById('form-bank-lak').value = emp.bankLak || ""; document.getElementById('form-bank-usd').value = emp.bankUsd || ""; document.getElementById('form-email').value = emp.email || ""; document.getElementById('form-whatsapp').value = emp.whatsapp || ""; if(emp.profilePic) { tempProfilePic = emp.profilePic; const prev = document.getElementById('form-preview-pic'); prev.src = emp.profilePic; prev.classList.remove('hidden'); document.getElementById('form-default-icon').classList.add('hidden'); document.getElementById('delete-modal-photo-btn').classList.remove('hidden'); } } } else { document.getElementById('modal-title').innerText = "Add Staff"; document.getElementById('form-campus').value = "Sibounheuang"; window.filterModalDepts(); } document.getElementById('add-modal').classList.remove('hidden'); document.getElementById('add-modal').classList.add('flex'); window.toggleBankFields(); 
-            
-            // Trigger check initially
-            window.checkBankName(document.getElementById('form-bank-name'));
-            
+            if(id) { 
+                const emp = employees.find(e => String(e.id) === String(id)); 
+                if (emp) { 
+                    document.getElementById('modal-title').innerText = "Edit Staff Details"; 
+                    document.getElementById('form-id').value = emp.id; 
+                    document.getElementById('form-name').value = emp.name; 
+                    document.getElementById('form-position').value = emp.position; 
+                    document.getElementById('form-bank-name').value = emp.bankAccountName || ""; 
+                    
+                    const targetCampus = emp.campus || (ACADEMIC_DEPTS.includes(emp.department) ? "Sibounheuang" : "General Services"); 
+                    document.getElementById('form-campus').value = targetCampus; 
+                    // Important: Filter depts based on campus THEN select department
+                    window.filterModalDepts(emp.department); 
+                    
+                    document.getElementById('form-department').value = emp.department; 
+                    document.getElementById('form-bank-lak').value = emp.bankLak || ""; 
+                    document.getElementById('form-bank-usd').value = emp.bankUsd || ""; 
+                    document.getElementById('form-email').value = emp.email || ""; 
+                    document.getElementById('form-whatsapp').value = emp.whatsapp || ""; 
+                    if(emp.profilePic) { 
+                        tempProfilePic = emp.profilePic; 
+                        const prev = document.getElementById('form-preview-pic'); prev.src = emp.profilePic; prev.classList.remove('hidden'); document.getElementById('form-default-icon').classList.add('hidden'); document.getElementById('delete-modal-photo-btn').classList.remove('hidden'); 
+                    } 
+                } 
+            } 
+            document.getElementById('add-modal').classList.remove('hidden'); document.getElementById('add-modal').classList.add('flex'); window.toggleBankFields(); window.checkBankName(document.getElementById('form-bank-name')); 
             if (window.lucide) lucide.createIcons(); 
         };
+        
         window.checkBankName = (input) => {
             const warning = document.getElementById('bank-name-warning');
             if (input.value.trim() === "") {
@@ -2977,7 +3021,7 @@
                     } 
                     await transact(STORE_EMPLOYEES, 'readwrite', s => s.clear()); 
                     for (const em of importedEmployees) { if(!em.payrollHistory) em.payrollHistory = {}; if(!em.savedPayroll) em.savedPayroll = {}; await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(em)); } 
-                    employees = importedEmployees; 
+                    employees = importedEmployees;
                     await transact(STORE_HISTORY, 'readwrite', s => s.clear()); 
                     if (importedHistory) { for (const h of importedHistory) await transact(STORE_HISTORY, 'readwrite', s => s.put(h)); history = importedHistory; } 
                     alert("Restore successful! Data cleaned and sanitized. Reloading..."); 
@@ -3039,7 +3083,6 @@
                 if(d.absences > 0) { html += `<tr><td class="py-1">Absences</td><td class="text-right font-mono">-${formatUSD(d.absences)}</td></tr>`; totalDed += d.absences; }
                 if(d.visa > 0) { html += `<tr><td class="py-1">Visa</td><td class="text-right font-mono">-${formatUSD(d.visa)}</td></tr>`; totalDed += d.visa; }
                 if(d.deductionsOthersUSD > 0) { html += `<tr><td class="py-1">Others</td><td class="text-right font-mono">-${formatUSD(d.deductionsOthersUSD)}</td></tr>`; totalDed += d.deductionsOthersUSD; }
-                // LAK Deductions converted for display or shown separate? Usually shown as deductions from final LAK.
             } else {
                 cfg.deductions.forEach(f => {
                     const val = currentPayrollState[f] || 0;
@@ -3094,7 +3137,6 @@
                  const d = currentPayrollState;
                  msg += `Basic Pay: ${formatUSD(d.basicPay)}\n`;
                  if(d.otHours > 0) msg += `OT: ${d.otHours} hrs ($${d.otRate}/hr)\n`;
-                 // Add more fields if needed
             } else {
                  cfg.earnings.forEach(f => {
                      const val = currentPayrollState[f] || 0;
@@ -3114,7 +3156,8 @@
 
         window.onload = function() { 
             if (window.lucide) lucide.createIcons();
-            // Load logo immediately for landing page
+            
+            // Load logo locally for immediate visual, then Firebase will overwrite if newer
             const savedLogo = localStorage.getItem('neerada_school_logo');
             if(savedLogo) {
                  window.updateLogoDOM(savedLogo);
@@ -3125,11 +3168,8 @@
                 window.showLockScreen();
                 return; // Stop view transitions
             }
-
-            // Clear view state to ensure next reload is also landing (optional security feature)
-            // localStorage.removeItem('neerada_current_view'); 
             
-            // Auto-exit welcome modal after 4 seconds if it exists (legacy)
+            // Auto-exit welcome modal if exists
             setTimeout(() => {
                 const wm = document.getElementById('welcome-modal');
                 if(wm && !wm.classList.contains('hidden') && !wm.classList.contains('exiting')) {
@@ -3140,4 +3180,3 @@
     </script>
 </body>
 </html>
-
