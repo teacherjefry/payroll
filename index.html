@@ -145,7 +145,7 @@
         @media print {
             @page { size: auto; margin: 0mm; } 
             html, body { height: auto !important; overflow: visible !important; background: white !important; }
-            #landing-view, #welcome-modal, #system-lock-overlay, #global-archive-modal { display: none !important; }
+            #landing-view, #welcome-modal, #system-lock-overlay, #global-archive-modal, #custom-auth-modal { display: none !important; }
             body > *:not(#app-view) { display: none !important; }
             #app-view { display: block !important; height: auto !important; overflow: visible !important; }
             header, aside, #editor-content, #empty-state, .no-print, button, select, input:not([type="hidden"]), #bulk-action-management, .max-w-6xl > div:first-child { display: none !important; }
@@ -978,6 +978,19 @@
             </div>
         </div>
 
+        <!-- NEW: Custom Auth Modal for Masked Input -->
+        <div id="custom-auth-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-[300] p-4">
+            <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
+                <h3 id="auth-modal-title" class="text-lg font-bold text-gray-800 mb-2">Security Check</h3>
+                <p id="auth-modal-desc" class="text-sm text-gray-500 mb-4"></p>
+                <input type="password" id="auth-modal-input" class="w-full border rounded p-2 text-sm mb-4" placeholder="Enter code...">
+                <div class="flex gap-2 justify-end">
+                    <button onclick="window.closeAuthModal()" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded text-sm">Cancel</button>
+                    <button id="auth-modal-confirm" class="px-4 py-2 bg-blue-900 text-white rounded text-sm font-bold hover:bg-blue-800">Submit</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Settings Modal -->
         <div id="settings-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-[100] p-4">
             <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm max-h-[90vh] overflow-y-auto relative">
@@ -1183,6 +1196,18 @@
                         window.updateLogoDOM(data.logo);
                     }
                     if (data.theme) window.setTheme(data.theme, false); // false = don't save back to DB loop
+                    
+                    // Check Lock State from Cloud
+                    if (data.isLocked === true) {
+                         localStorage.setItem('neerada_locked', 'true');
+                         if(data.lockMsg) localStorage.setItem('neerada_lock_msg', data.lockMsg);
+                         window.showLockScreen();
+                    } else if (data.isLocked === false && localStorage.getItem('neerada_locked') === 'true') {
+                         // If cloud says unlocked but local is locked, unlock it (sync behavior)
+                         localStorage.removeItem('neerada_locked');
+                         document.getElementById('system-lock-overlay').classList.add('hidden');
+                         document.getElementById('system-lock-overlay').classList.remove('flex');
+                    }
                 }
             } catch (e) {
                 console.error("Error loading settings:", e);
@@ -1266,44 +1291,74 @@
         window.addEventListener('online', () => window.updateConnectionStatus(true));
         window.addEventListener('offline', () => window.updateConnectionStatus(false));
         
+        // --- AUTH & PROMPT LOGIC ---
+        let authCallback = null;
+
+        window.promptAuth = (title, desc, callback) => {
+            document.getElementById('auth-modal-title').innerText = title;
+            document.getElementById('auth-modal-desc').innerText = desc;
+            document.getElementById('auth-modal-input').value = '';
+            document.getElementById('custom-auth-modal').classList.remove('hidden');
+            document.getElementById('custom-auth-modal').classList.add('flex');
+            document.getElementById('auth-modal-input').focus();
+            authCallback = callback;
+        };
+
+        window.confirmAuth = () => {
+            const val = document.getElementById('auth-modal-input').value;
+            window.closeAuthModal();
+            if (authCallback) authCallback(val);
+        };
+
+        window.closeAuthModal = () => {
+            document.getElementById('custom-auth-modal').classList.add('hidden');
+            document.getElementById('custom-auth-modal').classList.remove('flex');
+            authCallback = null;
+        };
+        
+        // Bind enter key for auth modal
+        document.addEventListener('DOMContentLoaded', () => {
+             const authInput = document.getElementById('auth-modal-input');
+             const authBtn = document.getElementById('auth-modal-confirm');
+             if(authInput) authInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') window.confirmAuth();
+             });
+             if(authBtn) authBtn.onclick = window.confirmAuth;
+        });
+
         // --- ADMIN SECURITY ---
         window.handleSecretAdminUpdate = function() {
-            const answer = prompt("Security Question: When is your birthday?");
-            if (answer === "100688") {
-                 const newCode = prompt("Identity Verified.\n\nEnter NEW Admin Lock Code (input masked):");
-                 // Since prompt() doesn't support password masking natively in browsers easily without custom UI,
-                 // users requested "hide with the *". Standard prompt doesn't do this.
-                 // We will use a workaround: asking via a temporary password field injected or assume user accepts plain text prompt for now
-                 // OR we can repurpose the settings modal logic to show a hidden input.
-                 
-                 // Better UX for "masked" input:
-                 const code = prompt("Identity Verified.\n\nPlease enter the new Admin Code:");
-                 // Note: prompt() input cannot be masked with asterisks in standard JS. 
-                 // However, we will implement the logic update.
-                 if(code && code.length >= 4) {
-                     window.updateAdminCode(code);
-                 }
-            } else {
-                alert("Incorrect Security Answer.");
-            }
+            window.promptAuth("Security Verification", "When is your birthday?", (answer) => {
+                if (answer === "100688") {
+                     window.promptAuth("Update Admin Code", "Enter the new numeric code:", (newCode) => {
+                         if (newCode && newCode.length >= 4) {
+                             window.updateAdminCode(newCode);
+                         } else {
+                             alert("Code too short.");
+                         }
+                     });
+                } else {
+                    alert("Incorrect Security Answer.");
+                }
+            });
         }
 
         // --- DEVELOPER SECRET LOGIC ---
         window.handleDevSecret = function() {
-            const code = prompt("Enter Admin Code:");
-            // Use the getter from module scope if available, else fallback
-            const storedCode = (window.getAdminCode && window.getAdminCode()) || "0000";
-            
-            if (code === storedCode) {
-                const msg = prompt("SYSTEM LOCK: Enter a maintenance message to display. (Leave empty to cancel)");
-                if (msg !== null && msg.trim() !== "") {
+            window.promptAuth("System Lock", "Enter Admin Code to lock system:", (code) => {
+                // Use the getter from module scope if available, else fallback
+                const storedCode = (window.getAdminCode && window.getAdminCode()) || "0000";
+                
+                if (code === storedCode) {
+                    const msg = prompt("Enter lock message (optional):") || "System Unavailable";
                     localStorage.setItem('neerada_locked', 'true');
                     localStorage.setItem('neerada_lock_msg', msg);
+                    window.saveGlobalSettings({ isLocked: true, lockMsg: msg });
                     window.showLockScreen();
+                } else {
+                    alert("Access Denied");
                 }
-            } else {
-                alert("Access Denied");
-            }
+            });
         };
 
         window.showLockScreen = function() {
@@ -1320,20 +1375,22 @@
         };
 
         window.tryUnlock = function() {
-            const code = prompt("Enter Unlock Code:");
-            const storedCode = (window.getAdminCode && window.getAdminCode()) || "0000";
+            window.promptAuth("Unlock System", "Enter Unlock Code:", (code) => {
+                const storedCode = (window.getAdminCode && window.getAdminCode()) || "0000";
 
-            if (code === storedCode) {
-                localStorage.removeItem('neerada_locked');
-                localStorage.removeItem('neerada_lock_msg');
-                document.getElementById('system-lock-overlay').classList.add('hidden');
-                document.getElementById('system-lock-overlay').classList.remove('flex');
-                
-                // Return to landing
-                window.goToLanding();
-            } else {
-                alert("Incorrect Code");
-            }
+                if (code === storedCode) {
+                    localStorage.removeItem('neerada_locked');
+                    localStorage.removeItem('neerada_lock_msg');
+                    window.saveGlobalSettings({ isLocked: false, lockMsg: "" });
+                    document.getElementById('system-lock-overlay').classList.add('hidden');
+                    document.getElementById('system-lock-overlay').classList.remove('flex');
+                    
+                    // Return to landing
+                    window.goToLanding();
+                } else {
+                    alert("Incorrect Code");
+                }
+            });
         };
 
         // --- APP LOGIC (Previously in neerada_payroll.html) ---
@@ -3057,7 +3114,7 @@
         }
 
         window.onload = function() { 
-            lucide.createIcons();
+            if (window.lucide) lucide.createIcons();
             // Load logo immediately for landing page
             const savedLogo = localStorage.getItem('neerada_school_logo');
             if(savedLogo) {
@@ -3073,7 +3130,7 @@
             // Clear view state to ensure next reload is also landing (optional security feature)
             // localStorage.removeItem('neerada_current_view'); 
             
-            // Auto-exit welcome modal after 4 seconds if it exists (legacy
+            // Auto-exit welcome modal after 4 seconds if it exists (legacy)
             setTimeout(() => {
                 const wm = document.getElementById('welcome-modal');
                 if(wm && !wm.classList.contains('hidden') && !wm.classList.contains('exiting')) {
