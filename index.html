@@ -1347,7 +1347,7 @@
                          } else {
                              alert("Code too short. Must be at least 4 digits.");
                          }
-                      });
+                     });
                 } else {
                     alert("Incorrect Security Answer.");
                 }
@@ -1356,10 +1356,7 @@
 
         // --- DEVELOPER SECRET LOGIC ---
         window.handleDevSecret = function() {
-            // FIX: Added confirmation prompt to prevent accidental locking
-            if (!confirm("⚠️ WARNING: This will LOCK the system for all users.\n\nDo you want to proceed?")) return;
-            
-            window.promptAuth("System Lock", "Enter Admin Code to CONFIRM LOCK:", (code) => {
+            window.promptAuth("System Lock", "Enter Admin Code to lock system:", (code) => {
                 // Use the getter from module scope if available, else fallback
                 const storedCode = (window.getAdminCode && window.getAdminCode()) || "0000";
                 
@@ -2931,9 +2928,7 @@
         window.openPrintSettings = () => { if(!selectedEmployee) return; document.getElementById('print-modal').classList.remove('hidden'); document.getElementById('print-modal').classList.add('flex'); };
         window.closePrintSettings = () => { document.getElementById('print-modal').classList.add('hidden'); };
         window.bulkResetPayroll = async () => { const yr = document.getElementById('editor-year').value; const mn = document.getElementById('editor-month').value; const targetStr = currentFilter.department === 'All' ? 'ALL Staff' : currentFilter.department; if(!confirm(`RESET payroll data for ${targetStr} for ${mn} ${yr}? This cannot be undone.`)) return; const key = `${yr}-${mn}`; let count = 0; const targetEmployees = currentFilter.department === 'All' ? employees : employees.filter(e => e.department === currentFilter.department); for(const emp of targetEmployees) { if(emp.payrollHistory && emp.payrollHistory[key]) { delete emp.payrollHistory[key]; await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(emp)); count++; } } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); window.updateDashboardStats(); if(selectedEmployee) loadPeriodData(); alert(`Reset data for ${count} employees.`); };
-        window.deleteAllEmployeesInFilter = async () => { const targetStr = currentFilter.department === 'All' ? 'ALL Staff' :
         window.deleteAllEmployeesInFilter = async () => { const targetStr = currentFilter.department === 'All' ? 'ALL Staff' : currentFilter.department; if(!confirm(`DELETE ${targetStr}? This will remove employees and all their history permanently.`)) return; if(!confirm(`Are you absolutely sure you want to delete ${targetStr}?`)) return; const targetEmployees = currentFilter.department === 'All' ? employees : employees.filter(e => e.department === currentFilter.department); for(const emp of targetEmployees) { await transact(STORE_EMPLOYEES, 'readwrite', s => s.delete(emp.id)); } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); selectedEmployee = null; document.getElementById('editor-area').classList.add('hidden'); document.getElementById('empty-state').classList.remove('hidden'); renderEmployeeList(); renderDeptSidebar(); window.updateDashboardStats(); alert("Deletion complete."); };
-        
         window.downloadCSVTemplate = () => { const headers = ["No", "ID", "Name", "Gender", "Department", "Position", "LAK Account", "USD Account", "Email", "WhatsApp"]; const csvContent = "data:text/csv;charset=utf-8," + headers.join(","); const encodedUri = encodeURI(csvContent); const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", "staff_import_template.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
         
         // --- UPDATED EXPORT FUNCTION WITH AUTO-CLEANING FOR GS DEPARTMENTS ---
