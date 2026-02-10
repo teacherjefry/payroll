@@ -294,22 +294,6 @@
         </footer>
     </div>
 
-    <!-- System Lock Overlay (Moved outside views for global visibility) -->
-    <div id="system-lock-overlay" class="fixed inset-0 z-[200] hidden flex-col items-center justify-center text-white">
-        <div class="glass p-12 rounded-[3rem] text-center max-w-lg w-full mx-4 shadow-2xl">
-            <div class="mb-6 inline-flex p-5 bg-white/20 rounded-full animate-float">
-                <i data-lucide="lock" class="w-10 h-10 text-white drop-shadow-md"></i>
-            </div>
-            <h1 class="text-4xl font-hero font-bold mb-6 text-white drop-shadow-lg tracking-wide">System Locked</h1>
-            <p id="lock-message" class="text-2xl text-white font-cursive mb-10 drop-shadow-md leading-relaxed"></p>
-            
-            <button onclick="window.tryUnlock()" class="group bg-white text-blue-900 px-8 py-3 rounded-full font-bold shadow-xl hover:scale-105 transition-transform flex items-center justify-center gap-2 mx-auto">
-                <i data-lucide="key" class="w-4 h-4 text-blue-600"></i>
-                Unlock System
-            </button>
-        </div>
-    </div>
-
     <!-- ================= APP VIEW SECTION ================= -->
     <div id="app-view" class="hidden flex flex-col h-full relative z-0">
         
@@ -627,7 +611,7 @@
                                 <!-- OT Record Summary -->
                                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                                     <div class="p-4 border-b border-gray-100 bg-blue-50">
-                                        <h3 class="font-bold text-blue-800 flex items-center gap-2"><i data-lucide="clock" class="w-4 h-4"></i> Overtime Records (Selected Month)</h3>
+                                            <h3 class="font-bold text-blue-800 flex items-center gap-2"><i data-lucide="clock" class="w-4 h-4"></i> Overtime Records (Selected Month)</h3>
                                     </div>
                                     <div class="overflow-x-auto">
                                         <table class="w-full text-sm text-left">
@@ -1141,28 +1125,35 @@
         import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        // Environment variables
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        // ==========================================
+        // FIREBASE CONFIGURATION
+        // ==========================================
+        // Use the environment's config if available, otherwise fall back to the provided one.
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+             apiKey: "AIzaSyBHhZ_ltc1qs49erv7pzeczp5qlnxd46aufzapsmzpa7y73ct",
+             authDomain: "neerada-payroll.firebaseapp.com",
+             projectId: "neerada-payroll",
+             storageBucket: "neerada-payroll.firebasestorage.app",
+             messagingSenderId: "974433788853",
+             appId: "1:974433788853:web:be6eadac8ec50e3808affc"
+        };
+        
+        // Use environment app ID for isolation if available
+        const appId = typeof __app_id !== 'undefined' ? __app_id : "neerada-payroll-main";
 
         let dbFirestore;
         let auth;
         let adminCode = "0000"; 
 
         async function initFirebase() {
-             if (!firebaseConfig) {
-                 console.warn("Firebase config not found. Cloud features disabled.");
-                 return;
-             }
-
              try {
                  const app = initializeApp(firebaseConfig);
                  dbFirestore = getFirestore(app);
                  auth = getAuth(app);
-
-                 if (initialAuthToken) {
-                     await signInWithCustomToken(auth, initialAuthToken);
+                 
+                 // Authentication Logic: Prefer custom token from env, fallback to anonymous
+                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                     await signInWithCustomToken(auth, __initial_auth_token);
                  } else {
                      await signInAnonymously(auth);
                  }
@@ -1174,6 +1165,16 @@
              } catch (error) {
                  console.error("Firebase Init/Auth Error:", error);
                  window.updateConnectionStatus(false);
+                 // Visual indicator for offline mode
+                 const statusEl = document.getElementById('connection-status');
+                 if(statusEl) {
+                     statusEl.classList.remove('hidden');
+                     statusEl.classList.add('flex');
+                     statusEl.innerHTML = `
+                        <div class="w-2 h-2 bg-red-500 rounded-full"></div>
+                        <span class="text-[10px] font-medium text-red-300 uppercase tracking-wider">Offline (Auth Failed)</span>
+                     `;
+                 }
              }
         }
 
@@ -1188,7 +1189,7 @@
                     // Admin Code
                     if (data.adminCode) {
                         adminCode = data.adminCode;
-                        window.setAdminCode(data.adminCode);
+                        window.setAdminCode(data.adminCode); // Sync to standard script
                     }
                     // Logo - Save to LocalStorage for persistence and fast load
                     if (data.logo) {
@@ -1200,7 +1201,7 @@
                         window.setTheme(data.theme, false);
                     }
                     
-                    // Lock State
+                    // Lock State - Sync from Cloud
                     if (data.isLocked === true) {
                          localStorage.setItem('neerada_locked', 'true');
                          if(data.lockMsg) localStorage.setItem('neerada_lock_msg', data.lockMsg);
@@ -1246,7 +1247,11 @@
         // --- VIEW MANAGEMENT ---
         let localAdminCode = "0000";
         window.setAdminCode = (code) => { localAdminCode = code; };
-        window.getAdminCode = () => localAdminCode;
+        // We defer to the module script for getAdminCode if available, otherwise use local
+        // Note: The module script overwrites this usually, but we keep a fallback.
+        if (!window.getAdminCode) {
+             window.getAdminCode = () => localAdminCode;
+        }
 
         window.launchApp = function(skipAnim = false) {
             // Check Lock
@@ -1343,7 +1348,11 @@
                 if (answer === "100688") {
                      window.promptAuth("Update Admin Code", "Enter the new numeric code:", (newCode) => {
                          if (newCode && newCode.length >= 4) {
-                             window.updateAdminCode(newCode);
+                             if(window.updateAdminCode) window.updateAdminCode(newCode);
+                             else {
+                                 window.setAdminCode(newCode);
+                                 alert("Admin code updated locally.");
+                             }
                          } else {
                              alert("Code too short. Must be at least 4 digits.");
                          }
@@ -2149,20 +2158,7 @@
         window.handleStaffCSV = (input) => { const file = input.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = async (e) => { const text = e.target.result; const rows = text.split('\n').filter(r => r.trim()); if (rows.length < 2) return alert("Invalid CSV"); for (let i = 1; i < rows.length; i++) { const cols = rows[i].split(',').map(c => c.replace(/^"|"$/g, '').trim()); if (cols.length < 3) continue; const id = 'EMP_' + Date.now() + i; const name = cols[2]; const dept = cols[4]; const pos = cols[5]; await transact(STORE_EMPLOYEES, 'readwrite', s => s.put({ id, name, department: dept, position: pos, payrollHistory: {}, campus: "General Services" })); } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); renderEmployeeList(); renderDeptSidebar(); }; reader.readAsText(file); };
         window.triggerImport = () => document.getElementById('staff-csv-input').click();
         window.deleteAllPhotos = async () => { if (!confirm("Remove all employee photos?")) return; for (const emp of employees) { emp.profilePic = null; await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(emp)); } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); renderEmployeeList(); };
-        
-        // --- UPDATED setTheme FUNCTION (FIXED REDUNDANT WRITE) ---
-        window.setTheme = (theme, save = true) => { 
-            localStorage.setItem('neerada_theme', theme); 
-            if(document.body.classList.contains('view-app')) {
-                document.body.className = `view-app theme-${theme}`; 
-            }
-            // Update selector if it exists
-            const sel = document.getElementById('theme-select');
-            if(sel && sel.value !== theme) sel.value = theme;
-
-            if(save) window.saveGlobalSettings({ theme: theme }); 
-        };
-
+        window.setTheme = (theme, save = true) => { localStorage.setItem('neerada_theme', theme); document.body.className = `view-app theme-${theme}`; if(save && window.saveGlobalSettings) window.saveGlobalSettings({ theme: theme }); };
         window.downloadCSVReport = () => { 
             const yrFilter = document.getElementById('filter-year').value; 
             const mnFilter = document.getElementById('filter-month').value; 
@@ -2920,206 +2916,6 @@
             reader.readAsText(file);
         };
 
-        window.goBack = () => { selectedEmployee = null; document.getElementById('editor-area').classList.add('hidden'); document.getElementById('empty-state').classList.remove('hidden'); };
-        window.openSettings = () => { document.getElementById('settings-modal').classList.remove('hidden'); document.getElementById('settings-modal').classList.add('flex'); };
-        window.closeSettings = () => { document.getElementById('settings-modal').classList.add('hidden'); document.getElementById('settings-modal').classList.remove('flex'); };
-        window.bulkCopyPrevious = async () => { const m = document.getElementById('bulk-month').value; const y = document.getElementById('bulk-year').value; if(!m || !y) return; const currMIdx = MONTHS.indexOf(m); let prevMIdx = currMIdx - 1; let prevYr = parseInt(y); if (prevMIdx < 0) { prevMIdx = 11; prevYr--; } const prevM = MONTHS[prevMIdx]; if(!confirm(`Copy data from ${prevM} ${prevYr} to ${m} ${y} for ALL employees?\n\nWarning: This will overwrite existing data for ${m} ${y}.`)) return; const prevKey = `${prevYr}-${prevM}`; const currKey = `${y}-${m}`; let count = 0; for (const emp of employees) { if (emp.payrollHistory && emp.payrollHistory[prevKey]) { if (!emp.payrollHistory) emp.payrollHistory = {}; emp.payrollHistory[currKey] = JSON.parse(JSON.stringify(emp.payrollHistory[prevKey])); emp.lastModified = new Date().toISOString(); await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(emp)); count++; } } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); window.updateDashboardStats(); if (selectedEmployee) loadPeriodData(); alert(`Success! Copied data for ${count} employees.`); };
-        window.bulkSaveMonthData = async () => { const m = document.getElementById('bulk-month').value; const y = document.getElementById('bulk-year').value; if(!m || !y) return; const currKey = `${y}-${m}`; if(!confirm(`Save/Generate payroll data for ${m} ${y} for ALL employees?\n\nThis will create records using Department Defaults for any staff who don't have data yet.`)) return; let count = 0; for (const emp of employees) { if (!emp.payrollHistory) emp.payrollHistory = {}; if (!emp.payrollHistory[currKey]) { emp.payrollHistory[currKey] = createInitialState(emp.department); emp.lastModified = new Date().toISOString(); await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(emp)); count++; } } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); window.updateDashboardStats(); if (selectedEmployee) loadPeriodData(); alert(`Success! Generated default records for ${count} employees.\n(Employees with existing data were not changed)`); };
-        window.openPrintSettings = () => { if(!selectedEmployee) return; document.getElementById('print-modal').classList.remove('hidden'); document.getElementById('print-modal').classList.add('flex'); };
-        window.closePrintSettings = () => { document.getElementById('print-modal').classList.add('hidden'); };
-        window.bulkResetPayroll = async () => { const yr = document.getElementById('editor-year').value; const mn = document.getElementById('editor-month').value; const targetStr = currentFilter.department === 'All' ? 'ALL Staff' : currentFilter.department; if(!confirm(`RESET payroll data for ${targetStr} for ${mn} ${yr}? This cannot be undone.`)) return; const key = `${yr}-${mn}`; let count = 0; const targetEmployees = currentFilter.department === 'All' ? employees : employees.filter(e => e.department === currentFilter.department); for(const emp of targetEmployees) { if(emp.payrollHistory && emp.payrollHistory[key]) { delete emp.payrollHistory[key]; await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(emp)); count++; } } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); window.updateDashboardStats(); if(selectedEmployee) loadPeriodData(); alert(`Reset data for ${count} employees.`); };
-        window.deleteAllEmployeesInFilter = async () => { const targetStr = currentFilter.department === 'All' ? 'ALL Staff' : currentFilter.department; if(!confirm(`DELETE ${targetStr}? This will remove employees and all their history permanently.`)) return; if(!confirm(`Are you absolutely sure you want to delete ${targetStr}?`)) return; const targetEmployees = currentFilter.department === 'All' ? employees : employees.filter(e => e.department === currentFilter.department); for(const emp of targetEmployees) { await transact(STORE_EMPLOYEES, 'readwrite', s => s.delete(emp.id)); } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); selectedEmployee = null; document.getElementById('editor-area').classList.add('hidden'); document.getElementById('empty-state').classList.remove('hidden'); renderEmployeeList(); renderDeptSidebar(); window.updateDashboardStats(); alert("Deletion complete."); };
-        window.downloadCSVTemplate = () => { const headers = ["No", "ID", "Name", "Gender", "Department", "Position", "LAK Account", "USD Account", "Email", "WhatsApp"]; const csvContent = "data:text/csv;charset=utf-8," + headers.join(","); const encodedUri = encodeURI(csvContent); const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", "staff_import_template.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
-        
-        // --- UPDATED EXPORT FUNCTION WITH AUTO-CLEANING FOR GS DEPARTMENTS ---
-        window.exportData = async () => { 
-            const emp = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); 
-            const hist = await transact(STORE_HISTORY, 'readonly', s => s.getAll()); 
-            const cfg = await transact(STORE_CONFIG, 'readonly', s => s.getAll()); 
-            
-            // --- DATA SANITIZATION FOR EXPORT ---
-            const restrictedGSFields = [
-                "ດຸໝັ່ນຄົ້ນຄວ້າ&ພັດທະນາການສອນການສອນ (ຮູ້ນໍາໃຊ້ເຕັກນິກເພື່ອເຮັດໃຫ້ ນຮ ມັກຮຽນ)",
-                "ນຳໃຊ້ສື່ການສອນ/ແຕ່ງບົດສອນ/ຕິດຕາມພັດທະນາການ ນຮ.ຫ້າວຫັນໃນການປະກອບສ່ວນໃນວຽກອື່ນໆຂອງໂຮງຮຽນ",
-                "ຄຸ້ມຄອງລະບຽບແລະຄວາມປະພຶດ ໃສ່ໃຈນຳ ນັກຮຽນ",
-                "ຄວາມຮັບຜິດຊອບໃນຫ້ອງຮຽນ : ທຸກໆຢ່າງ",
-                "ນະໂຍບາຍອື່ນໆ",
-                "ໃບປະກາດ: ປຕີ (ສອງແສນຫ້າສິບ) ຊັ້ນສູງ (ສອງແສນ) ຊັ້ນກາງ (ໜຶ່ງແສນຫ້າສິບ)",
-                "ຄູປະຈຳຫ້ອງ/ຄູປະຈຳຫ້ອງສະໝຸດ/ຄູປະຈຳເດີ່ນກິລາ",
-                "ຄຸ້ມຄອງລະບຽບແລະຄວາມປະພຶດ ນຮ/ໃສ່ໃຈນຳນັກຮຽນ",
-                "ເລີ້ມຕົ້ນ"
-            ];
-
-            const isGSDepartment = (deptName) => {
-                if (!deptName) return false;
-                if (GS_DEPTS.includes(deptName)) return true;
-                if (ACADEMIC_DEPTS.includes(deptName) || deptName === 'English') return false;
-                const lower = deptName.toLowerCase();
-                return lower.includes('admin') || lower.includes('secretary') || lower.includes('cook') || lower.includes('driver') || lower.includes('repair') || lower.includes('guard') || lower.includes('cleaner') || lower.includes('general') || lower.includes('account');
-            };
-
-            // 1. Clean Configuration (Create copy to not affect live app state during export)
-            const cleanConfig = cfg.map(c => {
-                if (isGSDepartment(c.name)) {
-                    const newC = JSON.parse(JSON.stringify(c));
-                    newC.earnings = newC.earnings.filter(f => !restrictedGSFields.includes(f));
-                    return newC;
-                }
-                return c;
-            });
-
-            // 2. Clean Employee History (Create copy)
-            const cleanEmployees = emp.map(e => {
-                if (isGSDepartment(e.department)) {
-                    const newE = JSON.parse(JSON.stringify(e));
-                    if (newE.payrollHistory) {
-                        Object.keys(newE.payrollHistory).forEach(key => {
-                            restrictedGSFields.forEach(field => {
-                                delete newE.payrollHistory[key][field];
-                            });
-                        });
-                    }
-                    return newE;
-                }
-                return e;
-            });
-
-            const data = { employees: cleanEmployees, history: hist, config: cleanConfig, timestamp: Date.now() }; 
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); 
-            const url = URL.createObjectURL(blob); 
-            const a = document.createElement('a'); 
-            a.href = url; 
-            a.download = `neerada_backup_${new Date().toISOString().split('T')[0]}.json`; 
-            document.body.appendChild(a); 
-            a.click(); 
-            document.body.removeChild(a); 
-            URL.revokeObjectURL(url); 
-        };
-
-        window.importData = (input) => { 
-            const file = input.files[0]; if (!file) return; 
-            const reader = new FileReader(); 
-            reader.onload = async (e) => { 
-                try { 
-                    const data = JSON.parse(e.target.result); 
-                    
-                    let importedConfig = data.config || data.departmentConfigs; 
-                    let importedEmployees = data.employees; 
-                    let importedHistory = data.history || data.history_logs; 
-                    if (!importedEmployees) throw new Error("Invalid backup: Missing employees data."); 
-                    if (importedConfig && !Array.isArray(importedConfig)) { 
-                        importedConfig = Object.entries(importedConfig).map(([name, cfg]) => ({ name, ...cfg })); 
-                    } 
-                    if (!importedConfig) { 
-                        if(!confirm("Backup is missing configuration data. Import employees only?")) return; 
-                        importedConfig = []; 
-                    } else { 
-                        if (!confirm(`Restore backup from ${new Date(data.timestamp || Date.now()).toLocaleDateString()}? This will overwrite current data.`)) return; 
-                    } 
-
-                    // --- DATA SANITIZATION START (IMPORT) ---
-                    const fieldsToRemoveFromGS = [
-                        "ດຸໝັ່ນຄົ້ນຄວ້າ&ພັດທະນາການສອນການສອນ (ຮູ້ນໍາໃຊ້ເຕັກນິກເພື່ອເຮັດໃຫ້ ນຮ ມັກຮຽນ)",
-                        "ນຳໃຊ້ສື່ການສອນ/ແຕ່ງບົດສອນ/ຕິດຕາມພັດທະນາການ ນຮ.ຫ້າວຫັນໃນການປະກອບສ່ວນໃນວຽກອື່ນໆຂອງໂຮງຮຽນ",
-                        "ຄຸ້ມຄອງລະບຽບແລະຄວາມປະພຶດ ໃສ່ໃຈນຳ ນັກຮຽນ",
-                        "ຄວາມຮັບຜິດຊອບໃນຫ້ອງຮຽນ : ທຸກໆຢ່າງ",
-                        "ນະໂຍບາຍອື່ນໆ",
-                        "ໃບປະກາດ: ປຕີ (ສອງແສນຫ້າສິບ) ຊັ້ນສູງ (ສອງແສນ) ຊັ້ນກາງ (ໜຶ່ງແສນຫ້າສິບ)",
-                        "ຄູປະຈຳຫ້ອງ/ຄູປະຈຳຫ້ອງສະໝຸດ/ຄູປະຈຳເດີ່ນກິລາ",
-                        "ຄຸ້ມຄອງລະບຽບແລະຄວາມປະພຶດ ນຮ/ໃສ່ໃຈນຳນັກຮຽນ",
-                        "ເລີ້ມຕົ້ນ"
-                    ];
-
-                    const isGSDepartment = (deptName) => {
-                        if (!deptName) return false;
-                        if (GS_DEPTS.includes(deptName)) return true;
-                        if (ACADEMIC_DEPTS.includes(deptName) || deptName === 'English') return false;
-                        const lower = deptName.toLowerCase();
-                        return lower.includes('admin') || lower.includes('secretary') || lower.includes('cook') || lower.includes('driver') || lower.includes('repair') || lower.includes('guard') || lower.includes('cleaner') || lower.includes('general') || lower.includes('account');
-                    };
-
-                    // 1. Clean Configuration
-                    if (importedConfig) {
-                        importedConfig.forEach(c => {
-                            if (isGSDepartment(c.name)) {
-                                c.earnings = c.earnings.filter(f => !fieldsToRemoveFromGS.includes(f));
-                            }
-                        });
-                    }
-
-                    // 2. Clean Employee History
-                    if (importedEmployees) {
-                        importedEmployees.forEach(emp => {
-                            if (isGSDepartment(emp.department)) {
-                                if (emp.payrollHistory) {
-                                    Object.keys(emp.payrollHistory).forEach(key => {
-                                        const entry = emp.payrollHistory[key];
-                                        fieldsToRemoveFromGS.forEach(field => {
-                                            delete entry[field];
-                                        });
-                                    });
-                                }
-                                if (emp.savedPayroll) {
-                                    fieldsToRemoveFromGS.forEach(field => {
-                                        delete emp.savedPayroll[field];
-                                    });
-                                }
-                            }
-                        });
-                    }
-                    // --- DATA SANITIZATION END ---
-
-                    const defaultGSConfigs = {}; 
-                    for (const d of GS_DEPTS) { 
-                        let earnings = [...laoEarningsStruct]; 
-                        let deductions = [...defaultDeductions]; 
-                        if (d.includes('Accounts')) { earnings = ['Basic Pay (USD)', 'Exchange Rate (LAK)', 'ເງີນເດືອນພື້ນຖານ', 'ສະສົມປີຜ່ານມາ', 'ເພີ້ມປະຈຳປີ 2025-2026', 'ບໍລິຫານຫ້ອງການ/ບັນຊີ', 'ດຸໝັ່ນມາການ (ບໍ່ຂາດການ)', 'ພົວພັນວຽກທາງນອກ-ພາຍໃນ', 'ບັນຊີ ການເງີນວຽກອື່ນໆຂອງໂຮງຮຽນ']; } else if (d.includes('Invitational Teachers')) { earnings = ['ຊົ່ວໂມງສອນທັງໝົດ (Total Hours Taught)', 'ອັດຕາຊົ່ວໂມງ (Rate per Hour)', 'ເງີນເດືອນ']; } 
-                        defaultGSConfigs[d] = { name: d, earnings, deductions }; 
-                    } 
-                    const importedDeptNames = new Set(importedConfig.map(c => c.name)); 
-                    for (const gsDept of GS_DEPTS) { if (!importedDeptNames.has(gsDept)) { importedConfig.push(defaultGSConfigs[gsDept]); } } 
-                    
-                    if (importedConfig.length > 0) { 
-                        await transact(STORE_CONFIG, 'readwrite', s => s.clear()); 
-                        // PATCH: Ensure Lao fields exist for standard departments
-                        for (const c of importedConfig) {
-                            if (c.name !== 'English' && !c.name.includes('Accounts') && !c.name.includes('Invitational') && !isGSDepartment(c.name)) {
-                                // Re-enforce standard order for standard ACADEMIC departments only
-                                let newEarnings = [];
-                                const existingEarningsSet = new Set(c.earnings);
-                                laoEarningsStruct.forEach(field => {
-                                    if (existingEarningsSet.has(field)) {
-                                        newEarnings.push(field);
-                                        existingEarningsSet.delete(field);
-                                    }
-                                });
-                                // Add remaining custom fields
-                                existingEarningsSet.forEach(field => {
-                                    newEarnings.push(field);
-                                });
-                                // Fallback if crucial fields missing (unlikely if strictly followed logic, but safe)
-                                if (newEarnings.length === 0) newEarnings = [...laoEarningsStruct];
-                                
-                                c.earnings = newEarnings;
-                            }
-                            await transact(STORE_CONFIG, 'readwrite', s => s.put(c));
-                        }
-                        departmentConfigs = {}; 
-                        importedConfig.forEach(c => departmentConfigs[c.name] = { earnings: c.earnings, deductions: c.deductions }); 
-                    } 
-                    await transact(STORE_EMPLOYEES, 'readwrite', s => s.clear()); 
-                    for (const em of importedEmployees) { if(!em.payrollHistory) em.payrollHistory = {}; if(!em.savedPayroll) em.savedPayroll = {}; await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(em)); } 
-                    employees = importedEmployees;
-                    await transact(STORE_HISTORY, 'readwrite', s => s.clear()); 
-                    if (importedHistory) { for (const h of importedHistory) await transact(STORE_HISTORY, 'readwrite', s => s.put(h)); history = importedHistory; } 
-                    alert("Restore successful! Data cleaned and sanitized. Reloading..."); 
-                    // PERSISTENCE FIX: Ensure we stay in app mode
-                    localStorage.setItem('neerada_current_view', 'app');
-                    window.location.reload(); 
-                } catch (err) { alert("Error importing data: " + err.message); console.error("Import Error Details:", err); } 
-            }; reader.readAsText(file); input.value = ''; 
-        };
-        
         // --- RENDER PREVIEW FUNCTION (Replaces text in preview pane) ---
         function renderPreview() {
             if(!selectedEmployee) return;
@@ -3250,16 +3046,198 @@
             return msg;
         }
 
+        // --- NEW HELPER FUNCTIONS ADDED TO FIX MISSING REFERENCES ---
+        window.openSettings = () => { document.getElementById('settings-modal').classList.remove('hidden'); document.getElementById('settings-modal').classList.add('flex'); };
+        window.closeSettings = () => { document.getElementById('settings-modal').classList.add('hidden'); document.getElementById('settings-modal').classList.remove('flex'); };
+        window.openPrintSettings = () => { document.getElementById('print-modal').classList.remove('hidden'); document.getElementById('print-modal').classList.add('flex'); };
+        window.closePrintSettings = () => { document.getElementById('print-modal').classList.add('hidden'); document.getElementById('print-modal').classList.remove('flex'); };
+        window.openGlobalArchives = () => {
+             // Populate archives
+             const list = document.getElementById('global-archive-list');
+             let html = '';
+             let hasRows = false;
+             employees.forEach(emp => {
+                 if(emp.archivedLoans && emp.archivedLoans.length > 0) {
+                     emp.archivedLoans.forEach(l => {
+                         hasRows = true;
+                         html += `<tr>
+                            <td class="px-4 py-3 font-medium text-gray-800">${emp.name}</td>
+                            <td class="px-4 py-3 text-xs text-gray-500">${emp.department}</td>
+                            <td class="px-4 py-3">${l.description}</td>
+                            <td class="px-4 py-3 text-center text-xs text-gray-500">${l.dateAdded || '-'}</td>
+                            <td class="px-4 py-3 text-right font-mono">${formatMoney(l.total)}</td>
+                            <td class="px-4 py-3 text-center"><span class="bg-gray-100 text-gray-600 px-2 py-1 rounded text-[10px] uppercase font-bold">Archived</span></td>
+                         </tr>`;
+                     });
+                 }
+             });
+             list.innerHTML = hasRows ? html : `<tr><td colspan="6" class="p-6 text-center text-gray-400">No archived loans found globally.</td></tr>`;
+             document.getElementById('global-archive-modal').classList.remove('hidden');
+             document.getElementById('global-archive-modal').classList.add('flex');
+        };
+
+        window.bulkSavePayroll = async () => {
+             if(!confirm("This will save the current month's data for all currently filtered employees to history. Continue?")) return;
+             
+             let filtered = employees;
+             if (currentFilter.campus !== 'All') filtered = filtered.filter(e => e.campus === currentFilter.campus);
+             if (currentFilter.department !== 'All') filtered = filtered.filter(e => e.department === currentFilter.department);
+             
+             const m = document.getElementById('editor-month').value;
+             const y = document.getElementById('editor-year').value;
+             const key = `${y}-${m}`;
+             
+             let updated = 0;
+             for (const emp of filtered) {
+                 if (!emp.payrollHistory) emp.payrollHistory = {};
+                 // Only save if no entry exists or user wants to overwrite (implicit in bulk save usually means ensure record exists)
+                 // But let's be safe: if exists, we update timestamp. If not, we create default.
+                 // Actually, better logic: If entry exists, keep it. If not, create default and save.
+                 if (!emp.payrollHistory[key]) {
+                     emp.payrollHistory[key] = createInitialState(emp.department);
+                     // Auto-calc fields
+                     recalculatePayrollState(emp.department, emp.payrollHistory[key]);
+                     emp.lastModified = new Date().toISOString();
+                     await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(emp));
+                     updated++;
+                 }
+             }
+             
+             // Refresh
+             employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll());
+             window.updateDashboardStats();
+             alert(`Bulk process complete. Created records for ${updated} staff who had no data for ${m} ${y}.`);
+        };
+
+        window.bulkResetPayroll = async () => {
+             if(!confirm("WARNING: This will RESET the current month's data for all currently filtered employees to zero/default. Existing data for this month will be lost. Continue?")) return;
+             
+             let filtered = employees;
+             if (currentFilter.campus !== 'All') filtered = filtered.filter(e => e.campus === currentFilter.campus);
+             if (currentFilter.department !== 'All') filtered = filtered.filter(e => e.department === currentFilter.department);
+             
+             const m = document.getElementById('editor-month').value;
+             const y = document.getElementById('editor-year').value;
+             const key = `${y}-${m}`;
+             
+             for (const emp of filtered) {
+                 if (!emp.payrollHistory) emp.payrollHistory = {};
+                 emp.payrollHistory[key] = createInitialState(emp.department);
+                 emp.lastModified = new Date().toISOString();
+                 await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(emp));
+             }
+             
+             employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll());
+             if (selectedEmployee) loadPeriodData();
+             window.updateDashboardStats();
+             alert("Bulk reset complete.");
+        };
+
+        window.deleteAllEmployeesInFilter = async () => {
+             if (currentFilter.department === 'All') return alert("Please select a specific department first to avoid accidental mass deletion.");
+             if(!confirm(`DANGER: Are you sure you want to DELETE ALL employees in the '${currentFilter.department}' department? This cannot be undone.`)) return;
+             
+             let filtered = employees;
+             if (currentFilter.campus !== 'All') filtered = filtered.filter(e => e.campus === currentFilter.campus);
+             if (currentFilter.department !== 'All') filtered = filtered.filter(e => e.department === currentFilter.department);
+             
+             for (const emp of filtered) {
+                 await transact(STORE_EMPLOYEES, 'readwrite', s => s.delete(emp.id));
+             }
+             
+             employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll());
+             selectedEmployee = null;
+             document.getElementById('editor-area').classList.add('hidden');
+             document.getElementById('empty-state').classList.remove('hidden');
+             renderEmployeeList();
+             renderDeptSidebar();
+             window.updateDashboardStats();
+             alert("Bulk deletion complete.");
+        };
+        
+        window.exportData = async () => {
+            const allData = {
+                employees: employees,
+                history: history,
+                configs: departmentConfigs,
+                meta: { version: "2026_Unified", date: new Date().toISOString() }
+            };
+            const json = JSON.stringify(allData, null, 2);
+            const blob = new Blob([json], {type: "application/json"});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Neerada_Backup_${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        };
+
+        window.importData = (input) => {
+            const file = input.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if(confirm("This will overwrite existing local data. Continue?")) {
+                        // Clear existing
+                        // We do a merge strategy or clear all. Let's do clear all for clean restore.
+                        // Actually, indexedDB clear is safer.
+                        
+                        // Restore Configs
+                        if(data.configs) {
+                            for(const k in data.configs) {
+                                await transact(STORE_CONFIG, 'readwrite', s => s.put(data.configs[k]));
+                            }
+                        }
+                        
+                        // Restore Employees
+                        if(data.employees) {
+                            for(const emp of data.employees) {
+                                await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(emp));
+                            }
+                        }
+                        
+                        // Restore History Logs
+                        if(data.history) {
+                            for(const h of data.history) {
+                                await transact(STORE_HISTORY, 'readwrite', s => s.put(h));
+                            }
+                        }
+                        
+                        alert("Restore complete! Reloading...");
+                        location.reload();
+                    }
+                } catch(err) {
+                    alert("Error parsing backup file: " + err);
+                }
+            };
+            reader.readAsText(file);
+        };
+
         window.onload = function() { 
-            if (window.lucide) lucide.createIcons();
+            if (window.lucide) lucide.createIcons(); 
             
-            // Load logo locally for immediate visual, then Firebase will overwrite if newer
+            // 1. Persistence Check: If previously in-app, skip landing
+            const currentView = localStorage.getItem('neerada_current_view');
+            if (currentView === 'app') {
+                 // Check if locked FIRST
+                 if (localStorage.getItem('neerada_locked') === 'true') {
+                     window.showLockScreen();
+                     return;
+                 }
+                 window.launchApp(true); // true = skip animation
+            }
+
+            // 2. Load logo locally for immediate visual, then Firebase will overwrite if newer
             const savedLogo = localStorage.getItem('neerada_school_logo');
             if(savedLogo) {
                  window.updateLogoDOM(savedLogo);
             }
 
-            // Check Lock State Immediately
+            // 3. Check Lock State Immediately (Redundant safety check)
             if (localStorage.getItem('neerada_locked') === 'true') {
                 window.showLockScreen();
                 return; // Stop view transitions
