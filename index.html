@@ -294,6 +294,22 @@
         </footer>
     </div>
 
+    <!-- System Lock Overlay (Moved outside views for global visibility) -->
+    <div id="system-lock-overlay" class="fixed inset-0 z-[200] hidden flex-col items-center justify-center text-white">
+        <div class="glass p-12 rounded-[3rem] text-center max-w-lg w-full mx-4 shadow-2xl">
+            <div class="mb-6 inline-flex p-5 bg-white/20 rounded-full animate-float">
+                <i data-lucide="lock" class="w-10 h-10 text-white drop-shadow-md"></i>
+            </div>
+            <h1 class="text-4xl font-hero font-bold mb-6 text-white drop-shadow-lg tracking-wide">System Locked</h1>
+            <p id="lock-message" class="text-2xl text-white font-cursive mb-10 drop-shadow-md leading-relaxed"></p>
+            
+            <button onclick="window.tryUnlock()" class="group bg-white text-blue-900 px-8 py-3 rounded-full font-bold shadow-xl hover:scale-105 transition-transform flex items-center justify-center gap-2 mx-auto">
+                <i data-lucide="key" class="w-4 h-4 text-blue-600"></i>
+                Unlock System
+            </button>
+        </div>
+    </div>
+
     <!-- ================= APP VIEW SECTION ================= -->
     <div id="app-view" class="hidden flex flex-col h-full relative z-0">
         
@@ -611,7 +627,7 @@
                                 <!-- OT Record Summary -->
                                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                                     <div class="p-4 border-b border-gray-100 bg-blue-50">
-                                            <h3 class="font-bold text-blue-800 flex items-center gap-2"><i data-lucide="clock" class="w-4 h-4"></i> Overtime Records (Selected Month)</h3>
+                                        <h3 class="font-bold text-blue-800 flex items-center gap-2"><i data-lucide="clock" class="w-4 h-4"></i> Overtime Records (Selected Month)</h3>
                                     </div>
                                     <div class="overflow-x-auto">
                                         <table class="w-full text-sm text-left">
@@ -1125,35 +1141,28 @@
         import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        // ==========================================
-        // FIREBASE CONFIGURATION
-        // ==========================================
-        // Use the environment's config if available, otherwise fall back to the provided one.
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-             apiKey: "AIzaSyBHhZ_ltc1qs49erv7pzeczp5qlnxd46aufzapsmzpa7y73ct",
-             authDomain: "neerada-payroll.firebaseapp.com",
-             projectId: "neerada-payroll",
-             storageBucket: "neerada-payroll.firebasestorage.app",
-             messagingSenderId: "974433788853",
-             appId: "1:974433788853:web:be6eadac8ec50e3808affc"
-        };
-        
-        // Use environment app ID for isolation if available
-        const appId = typeof __app_id !== 'undefined' ? __app_id : "neerada-payroll-main";
+        // Environment variables
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
         let dbFirestore;
         let auth;
         let adminCode = "0000"; 
 
         async function initFirebase() {
+             if (!firebaseConfig) {
+                 console.warn("Firebase config not found. Cloud features disabled.");
+                 return;
+             }
+
              try {
                  const app = initializeApp(firebaseConfig);
                  dbFirestore = getFirestore(app);
                  auth = getAuth(app);
-                 
-                 // Authentication Logic: Prefer custom token from env, fallback to anonymous
-                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                     await signInWithCustomToken(auth, __initial_auth_token);
+
+                 if (initialAuthToken) {
+                     await signInWithCustomToken(auth, initialAuthToken);
                  } else {
                      await signInAnonymously(auth);
                  }
@@ -1165,16 +1174,6 @@
              } catch (error) {
                  console.error("Firebase Init/Auth Error:", error);
                  window.updateConnectionStatus(false);
-                 // Visual indicator for offline mode
-                 const statusEl = document.getElementById('connection-status');
-                 if(statusEl) {
-                     statusEl.classList.remove('hidden');
-                     statusEl.classList.add('flex');
-                     statusEl.innerHTML = `
-                        <div class="w-2 h-2 bg-red-500 rounded-full"></div>
-                        <span class="text-[10px] font-medium text-red-300 uppercase tracking-wider">Offline (Auth Failed)</span>
-                     `;
-                 }
              }
         }
 
@@ -1189,25 +1188,25 @@
                     // Admin Code
                     if (data.adminCode) {
                         adminCode = data.adminCode;
-                        window.setAdminCode(data.adminCode); // Sync to standard script
+                        window.setAdminCode(data.adminCode);
                     }
-                    // Logo - Fetch from Firestore strictly
+                    // Logo - Save to LocalStorage for persistence and fast load
                     if (data.logo) {
+                        localStorage.setItem('neerada_school_logo', data.logo);
                         window.updateLogoDOM(data.logo);
                     }
-                    // Theme - Fetch from Firestore strictly
+                    // Theme
                     if (data.theme) {
                         window.setTheme(data.theme, false);
                     }
                     
-                    // Lock State - Sync from Cloud strictly
+                    // Lock State
                     if (data.isLocked === true) {
-                         // Update global lock state variable for launch checks
-                         window.setSystemLocked(true);
-                         if(data.lockMsg) document.getElementById('lock-message').innerText = data.lockMsg;
+                         localStorage.setItem('neerada_locked', 'true');
+                         if(data.lockMsg) localStorage.setItem('neerada_lock_msg', data.lockMsg);
                          window.showLockScreen();
-                    } else {
-                         window.setSystemLocked(false);
+                    } else if (data.isLocked === false) {
+                         localStorage.removeItem('neerada_locked');
                          document.getElementById('system-lock-overlay').classList.add('hidden');
                          document.getElementById('system-lock-overlay').classList.remove('flex');
                     }
@@ -1246,19 +1245,12 @@
     <script>
         // --- VIEW MANAGEMENT ---
         let localAdminCode = "0000";
-        let isSystemLocked = false; // Internal state for lock status
-
         window.setAdminCode = (code) => { localAdminCode = code; };
-        window.setSystemLocked = (val) => { isSystemLocked = val; };
-
-        // We defer to the module script for getAdminCode if available, otherwise use local
-        if (!window.getAdminCode) {
-             window.getAdminCode = () => localAdminCode;
-        }
+        window.getAdminCode = () => localAdminCode;
 
         window.launchApp = function(skipAnim = false) {
-            // Check Lock State (set via Firebase callback)
-            if (isSystemLocked) {
+            // Check Lock
+            if (localStorage.getItem('neerada_locked') === 'true') {
                 window.showLockScreen();
                 return;
             }
@@ -1351,11 +1343,7 @@
                 if (answer === "100688") {
                      window.promptAuth("Update Admin Code", "Enter the new numeric code:", (newCode) => {
                          if (newCode && newCode.length >= 4) {
-                             if(window.updateAdminCode) window.updateAdminCode(newCode);
-                             else {
-                                 window.setAdminCode(newCode);
-                                 alert("Admin code updated locally.");
-                             }
+                             window.updateAdminCode(newCode);
                          } else {
                              alert("Code too short. Must be at least 4 digits.");
                          }
@@ -1374,14 +1362,9 @@
                 
                 if (code === storedCode) {
                     const msg = prompt("Enter lock message (optional):") || "System Unavailable";
-                    
-                    // Update global state immediately
-                    isSystemLocked = true;
-                    document.getElementById('lock-message').innerText = msg;
-                    
-                    // Save ONLY to Firebase, no LocalStorage
+                    localStorage.setItem('neerada_locked', 'true');
+                    localStorage.setItem('neerada_lock_msg', msg);
                     if(window.saveGlobalSettings) window.saveGlobalSettings({ isLocked: true, lockMsg: msg });
-                    
                     window.showLockScreen();
                 } else {
                     alert("Access Denied");
@@ -1391,7 +1374,9 @@
 
         window.showLockScreen = function() {
             const overlay = document.getElementById('system-lock-overlay');
-            // Message is updated via state/settings logic
+            const msgEl = document.getElementById('lock-message');
+            
+            msgEl.innerText = localStorage.getItem('neerada_lock_msg') || "System Unavailable";
             overlay.classList.remove('hidden');
             overlay.classList.add('flex');
             
@@ -1405,12 +1390,9 @@
                 const storedCode = (window.getAdminCode && window.getAdminCode()) || "0000";
 
                 if (code === storedCode) {
-                    // Update Global State
-                    isSystemLocked = false;
-                    
-                    // Save ONLY to Firebase
+                    localStorage.removeItem('neerada_locked');
+                    localStorage.removeItem('neerada_lock_msg');
                     if(window.saveGlobalSettings) window.saveGlobalSettings({ isLocked: false, lockMsg: "" });
-                    
                     document.getElementById('system-lock-overlay').classList.add('hidden');
                     document.getElementById('system-lock-overlay').classList.remove('flex');
                     
@@ -1555,10 +1537,12 @@
                 employees = await transact(STORE_EMPLOYEES, 'readonly', (s) => s.getAll());
                 history = await transact(STORE_HISTORY, 'readonly', (s) => s.getAll());
 
-                // Theme is now loaded via loadGlobalSettings, not LocalStorage
-                // We keep a default fallback class just in case
-                if(document.body.classList.contains('view-app') && !document.body.className.includes('theme-')) {
-                    document.body.classList.add('theme-default');
+                const savedTheme = localStorage.getItem('neerada_theme') || 'default';
+                if(document.body.classList.contains('view-app')) document.body.classList.add(`theme-${savedTheme}`);
+                
+                const savedLogo = localStorage.getItem('neerada_school_logo');
+                if (savedLogo) {
+                   window.updateLogoDOM(savedLogo);
                 }
 
                 setupYearSelectors(); setupMonthSelectors(); window.updateDashboardStats(); renderDeptSidebar(); renderEmployeeList();
@@ -1973,7 +1957,7 @@
                       if (f !== 'Basic Pay (USD)' && f !== 'Exchange Rate (LAK)') {
                           if (startIndex !== -1) {
                              if (currIndex >= startIndex) {
-                                  te += v;
+                                 te += v;
                              }
                           } else {
                              // Fallback if 'Start' field missing from config
@@ -2048,10 +2032,11 @@
                     // Compress to JPEG 0.8 quality
                     const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
                     
-                    // Update DOM
+                    // Update Local State
+                    localStorage.setItem('neerada_school_logo', dataUrl);
                     window.updateLogoDOM(dataUrl);
                     
-                    // Save to Firestore (Strictly NO LocalStorage)
+                    // Save to Firestore
                     window.saveGlobalSettings({ logo: dataUrl });
                     alert("Logo updated and synced to cloud.");
                 };
@@ -2164,12 +2149,20 @@
         window.handleStaffCSV = (input) => { const file = input.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = async (e) => { const text = e.target.result; const rows = text.split('\n').filter(r => r.trim()); if (rows.length < 2) return alert("Invalid CSV"); for (let i = 1; i < rows.length; i++) { const cols = rows[i].split(',').map(c => c.replace(/^"|"$/g, '').trim()); if (cols.length < 3) continue; const id = 'EMP_' + Date.now() + i; const name = cols[2]; const dept = cols[4]; const pos = cols[5]; await transact(STORE_EMPLOYEES, 'readwrite', s => s.put({ id, name, department: dept, position: pos, payrollHistory: {}, campus: "General Services" })); } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); renderEmployeeList(); renderDeptSidebar(); }; reader.readAsText(file); };
         window.triggerImport = () => document.getElementById('staff-csv-input').click();
         window.deleteAllPhotos = async () => { if (!confirm("Remove all employee photos?")) return; for (const emp of employees) { emp.profilePic = null; await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(emp)); } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); renderEmployeeList(); };
+        
+        // --- UPDATED setTheme FUNCTION (FIXED REDUNDANT WRITE) ---
         window.setTheme = (theme, save = true) => { 
-            // Theme is now managed via global settings object from Firebase
-            // Local persistence removed as per request
-            document.body.className = `view-app theme-${theme}`; 
-            if(save && window.saveGlobalSettings) window.saveGlobalSettings({ theme: theme }); 
+            localStorage.setItem('neerada_theme', theme); 
+            if(document.body.classList.contains('view-app')) {
+                document.body.className = `view-app theme-${theme}`; 
+            }
+            // Update selector if it exists
+            const sel = document.getElementById('theme-select');
+            if(sel && sel.value !== theme) sel.value = theme;
+
+            if(save) window.saveGlobalSettings({ theme: theme }); 
         };
+
         window.downloadCSVReport = () => { 
             const yrFilter = document.getElementById('filter-year').value; 
             const mnFilter = document.getElementById('filter-month').value; 
@@ -2927,59 +2920,351 @@
             reader.readAsText(file);
         };
 
-        window.importData = (input) => {
-            const file = input.files[0];
-            if(!file) return;
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                try {
-                    const data = JSON.parse(e.target.result);
-                    if(confirm("This will overwrite existing local data. Continue?")) {
-                        // Restore Configs
-                        if(data.configs) {
-                            for(const k in data.configs) {
-                                await transact(STORE_CONFIG, 'readwrite', s => s.put(data.configs[k]));
-                            }
-                        }
-                        
-                        // Restore Employees
-                        if(data.employees) {
-                            for(const emp of data.employees) {
-                                await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(emp));
-                            }
-                        }
-                        
-                        // Restore History Logs
-                        if(data.history) {
-                            for(const h of data.history) {
-                                await transact(STORE_HISTORY, 'readwrite', s => s.put(h));
-                            }
-                        }
-                        
-                        alert("Restore complete! Reloading...");
-                        location.reload();
-                    }
-                } catch(err) {
-                    alert("Error parsing backup file: " + err);
-                }
+        window.goBack = () => { selectedEmployee = null; document.getElementById('editor-area').classList.add('hidden'); document.getElementById('empty-state').classList.remove('hidden'); };
+        window.openSettings = () => { document.getElementById('settings-modal').classList.remove('hidden'); document.getElementById('settings-modal').classList.add('flex'); };
+        window.closeSettings = () => { document.getElementById('settings-modal').classList.add('hidden'); document.getElementById('settings-modal').classList.remove('flex'); };
+        window.bulkCopyPrevious = async () => { const m = document.getElementById('bulk-month').value; const y = document.getElementById('bulk-year').value; if(!m || !y) return; const currMIdx = MONTHS.indexOf(m); let prevMIdx = currMIdx - 1; let prevYr = parseInt(y); if (prevMIdx < 0) { prevMIdx = 11; prevYr--; } const prevM = MONTHS[prevMIdx]; if(!confirm(`Copy data from ${prevM} ${prevYr} to ${m} ${y} for ALL employees?\n\nWarning: This will overwrite existing data for ${m} ${y}.`)) return; const prevKey = `${prevYr}-${prevM}`; const currKey = `${y}-${m}`; let count = 0; for (const emp of employees) { if (emp.payrollHistory && emp.payrollHistory[prevKey]) { if (!emp.payrollHistory) emp.payrollHistory = {}; emp.payrollHistory[currKey] = JSON.parse(JSON.stringify(emp.payrollHistory[prevKey])); emp.lastModified = new Date().toISOString(); await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(emp)); count++; } } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); window.updateDashboardStats(); if (selectedEmployee) loadPeriodData(); alert(`Success! Copied data for ${count} employees.`); };
+        window.bulkSaveMonthData = async () => { const m = document.getElementById('bulk-month').value; const y = document.getElementById('bulk-year').value; if(!m || !y) return; const currKey = `${y}-${m}`; if(!confirm(`Save/Generate payroll data for ${m} ${y} for ALL employees?\n\nThis will create records using Department Defaults for any staff who don't have data yet.`)) return; let count = 0; for (const emp of employees) { if (!emp.payrollHistory) emp.payrollHistory = {}; if (!emp.payrollHistory[currKey]) { emp.payrollHistory[currKey] = createInitialState(emp.department); emp.lastModified = new Date().toISOString(); await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(emp)); count++; } } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); window.updateDashboardStats(); if (selectedEmployee) loadPeriodData(); alert(`Success! Generated default records for ${count} employees.\n(Employees with existing data were not changed)`); };
+        window.openPrintSettings = () => { if(!selectedEmployee) return; document.getElementById('print-modal').classList.remove('hidden'); document.getElementById('print-modal').classList.add('flex'); };
+        window.closePrintSettings = () => { document.getElementById('print-modal').classList.add('hidden'); };
+        window.bulkResetPayroll = async () => { const yr = document.getElementById('editor-year').value; const mn = document.getElementById('editor-month').value; const targetStr = currentFilter.department === 'All' ? 'ALL Staff' : currentFilter.department; if(!confirm(`RESET payroll data for ${targetStr} for ${mn} ${yr}? This cannot be undone.`)) return; const key = `${yr}-${mn}`; let count = 0; const targetEmployees = currentFilter.department === 'All' ? employees : employees.filter(e => e.department === currentFilter.department); for(const emp of targetEmployees) { if(emp.payrollHistory && emp.payrollHistory[key]) { delete emp.payrollHistory[key]; await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(emp)); count++; } } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); window.updateDashboardStats(); if(selectedEmployee) loadPeriodData(); alert(`Reset data for ${count} employees.`); };
+        window.deleteAllEmployeesInFilter = async () => { const targetStr = currentFilter.department === 'All' ? 'ALL Staff' : currentFilter.department; if(!confirm(`DELETE ${targetStr}? This will remove employees and all their history permanently.`)) return; if(!confirm(`Are you absolutely sure you want to delete ${targetStr}?`)) return; const targetEmployees = currentFilter.department === 'All' ? employees : employees.filter(e => e.department === currentFilter.department); for(const emp of targetEmployees) { await transact(STORE_EMPLOYEES, 'readwrite', s => s.delete(emp.id)); } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); selectedEmployee = null; document.getElementById('editor-area').classList.add('hidden'); document.getElementById('empty-state').classList.remove('hidden'); renderEmployeeList(); renderDeptSidebar(); window.updateDashboardStats(); alert("Deletion complete."); };
+        window.downloadCSVTemplate = () => { const headers = ["No", "ID", "Name", "Gender", "Department", "Position", "LAK Account", "USD Account", "Email", "WhatsApp"]; const csvContent = "data:text/csv;charset=utf-8," + headers.join(","); const encodedUri = encodeURI(csvContent); const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", "staff_import_template.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link); };
+        
+        // --- UPDATED EXPORT FUNCTION WITH AUTO-CLEANING FOR GS DEPARTMENTS ---
+        window.exportData = async () => { 
+            const emp = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); 
+            const hist = await transact(STORE_HISTORY, 'readonly', s => s.getAll()); 
+            const cfg = await transact(STORE_CONFIG, 'readonly', s => s.getAll()); 
+            
+            // --- DATA SANITIZATION FOR EXPORT ---
+            const restrictedGSFields = [
+                "ດຸໝັ່ນຄົ້ນຄວ້າ&ພັດທະນາການສອນການສອນ (ຮູ້ນໍາໃຊ້ເຕັກນິກເພື່ອເຮັດໃຫ້ ນຮ ມັກຮຽນ)",
+                "ນຳໃຊ້ສື່ການສອນ/ແຕ່ງບົດສອນ/ຕິດຕາມພັດທະນາການ ນຮ.ຫ້າວຫັນໃນການປະກອບສ່ວນໃນວຽກອື່ນໆຂອງໂຮງຮຽນ",
+                "ຄຸ້ມຄອງລະບຽບແລະຄວາມປະພຶດ ໃສ່ໃຈນຳ ນັກຮຽນ",
+                "ຄວາມຮັບຜິດຊອບໃນຫ້ອງຮຽນ : ທຸກໆຢ່າງ",
+                "ນະໂຍບາຍອື່ນໆ",
+                "ໃບປະກາດ: ປຕີ (ສອງແສນຫ້າສິບ) ຊັ້ນສູງ (ສອງແສນ) ຊັ້ນກາງ (ໜຶ່ງແສນຫ້າສິບ)",
+                "ຄູປະຈຳຫ້ອງ/ຄູປະຈຳຫ້ອງສະໝຸດ/ຄູປະຈຳເດີ່ນກິລາ",
+                "ຄຸ້ມຄອງລະບຽບແລະຄວາມປະພຶດ ນຮ/ໃສ່ໃຈນຳນັກຮຽນ",
+                "ເລີ້ມຕົ້ນ"
+            ];
+
+            const isGSDepartment = (deptName) => {
+                if (!deptName) return false;
+                if (GS_DEPTS.includes(deptName)) return true;
+                if (ACADEMIC_DEPTS.includes(deptName) || deptName === 'English') return false;
+                const lower = deptName.toLowerCase();
+                return lower.includes('admin') || lower.includes('secretary') || lower.includes('cook') || lower.includes('driver') || lower.includes('repair') || lower.includes('guard') || lower.includes('cleaner') || lower.includes('general') || lower.includes('account');
             };
-            reader.readAsText(file);
+
+            // 1. Clean Configuration (Create copy to not affect live app state during export)
+            const cleanConfig = cfg.map(c => {
+                if (isGSDepartment(c.name)) {
+                    const newC = JSON.parse(JSON.stringify(c));
+                    newC.earnings = newC.earnings.filter(f => !restrictedGSFields.includes(f));
+                    return newC;
+                }
+                return c;
+            });
+
+            // 2. Clean Employee History (Create copy)
+            const cleanEmployees = emp.map(e => {
+                if (isGSDepartment(e.department)) {
+                    const newE = JSON.parse(JSON.stringify(e));
+                    if (newE.payrollHistory) {
+                        Object.keys(newE.payrollHistory).forEach(key => {
+                            restrictedGSFields.forEach(field => {
+                                delete newE.payrollHistory[key][field];
+                            });
+                        });
+                    }
+                    return newE;
+                }
+                return e;
+            });
+
+            const data = { employees: cleanEmployees, history: hist, config: cleanConfig, timestamp: Date.now() }; 
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); 
+            const url = URL.createObjectURL(blob); 
+            const a = document.createElement('a'); 
+            a.href = url; 
+            a.download = `neerada_backup_${new Date().toISOString().split('T')[0]}.json`; 
+            document.body.appendChild(a); 
+            a.click(); 
+            document.body.removeChild(a); 
+            URL.revokeObjectURL(url); 
         };
 
-        window.onload = function() { 
-            if (window.lucide) lucide.createIcons(); 
+        window.importData = (input) => { 
+            const file = input.files[0]; if (!file) return; 
+            const reader = new FileReader(); 
+            reader.onload = async (e) => { 
+                try { 
+                    const data = JSON.parse(e.target.result); 
+                    
+                    let importedConfig = data.config || data.departmentConfigs; 
+                    let importedEmployees = data.employees; 
+                    let importedHistory = data.history || data.history_logs; 
+                    if (!importedEmployees) throw new Error("Invalid backup: Missing employees data."); 
+                    if (importedConfig && !Array.isArray(importedConfig)) { 
+                        importedConfig = Object.entries(importedConfig).map(([name, cfg]) => ({ name, ...cfg })); 
+                    } 
+                    if (!importedConfig) { 
+                        if(!confirm("Backup is missing configuration data. Import employees only?")) return; 
+                        importedConfig = []; 
+                    } else { 
+                        if (!confirm(`Restore backup from ${new Date(data.timestamp || Date.now()).toLocaleDateString()}? This will overwrite current data.`)) return; 
+                    } 
+
+                    // --- DATA SANITIZATION START (IMPORT) ---
+                    const fieldsToRemoveFromGS = [
+                        "ດຸໝັ່ນຄົ້ນຄວ້າ&ພັດທະນາການສອນການສອນ (ຮູ້ນໍາໃຊ້ເຕັກນິກເພື່ອເຮັດໃຫ້ ນຮ ມັກຮຽນ)",
+                        "ນຳໃຊ້ສື່ການສອນ/ແຕ່ງບົດສອນ/ຕິດຕາມພັດທະນາການ ນຮ.ຫ້າວຫັນໃນການປະກອບສ່ວນໃນວຽກອື່ນໆຂອງໂຮງຮຽນ",
+                        "ຄຸ້ມຄອງລະບຽບແລະຄວາມປະພຶດ ໃສ່ໃຈນຳ ນັກຮຽນ",
+                        "ຄວາມຮັບຜິດຊອບໃນຫ້ອງຮຽນ : ທຸກໆຢ່າງ",
+                        "ນະໂຍບາຍອື່ນໆ",
+                        "ໃບປະກາດ: ປຕີ (ສອງແສນຫ້າສິບ) ຊັ້ນສູງ (ສອງແສນ) ຊັ້ນກາງ (ໜຶ່ງແສນຫ້າສິບ)",
+                        "ຄູປະຈຳຫ້ອງ/ຄູປະຈຳຫ້ອງສະໝຸດ/ຄູປະຈຳເດີ່ນກິລາ",
+                        "ຄຸ້ມຄອງລະບຽບແລະຄວາມປະພຶດ ນຮ/ໃສ່ໃຈນຳນັກຮຽນ",
+                        "ເລີ້ມຕົ້ນ"
+                    ];
+
+                    const isGSDepartment = (deptName) => {
+                        if (!deptName) return false;
+                        if (GS_DEPTS.includes(deptName)) return true;
+                        if (ACADEMIC_DEPTS.includes(deptName) || deptName === 'English') return false;
+                        const lower = deptName.toLowerCase();
+                        return lower.includes('admin') || lower.includes('secretary') || lower.includes('cook') || lower.includes('driver') || lower.includes('repair') || lower.includes('guard') || lower.includes('cleaner') || lower.includes('general') || lower.includes('account');
+                    };
+
+                    // 1. Clean Configuration
+                    if (importedConfig) {
+                        importedConfig.forEach(c => {
+                            if (isGSDepartment(c.name)) {
+                                c.earnings = c.earnings.filter(f => !fieldsToRemoveFromGS.includes(f));
+                            }
+                        });
+                    }
+
+                    // 2. Clean Employee History
+                    if (importedEmployees) {
+                        importedEmployees.forEach(emp => {
+                            if (isGSDepartment(emp.department)) {
+                                if (emp.payrollHistory) {
+                                    Object.keys(emp.payrollHistory).forEach(key => {
+                                        const entry = emp.payrollHistory[key];
+                                        fieldsToRemoveFromGS.forEach(field => {
+                                            delete entry[field];
+                                        });
+                                    });
+                                }
+                                if (emp.savedPayroll) {
+                                    fieldsToRemoveFromGS.forEach(field => {
+                                        delete emp.savedPayroll[field];
+                                    });
+                                }
+                            }
+                        });
+                    }
+                    // --- DATA SANITIZATION END ---
+
+                    const defaultGSConfigs = {}; 
+                    for (const d of GS_DEPTS) { 
+                        let earnings = [...laoEarningsStruct]; 
+                        let deductions = [...defaultDeductions]; 
+                        if (d.includes('Accounts')) { earnings = ['Basic Pay (USD)', 'Exchange Rate (LAK)', 'ເງີນເດືອນພື້ນຖານ', 'ສະສົມປີຜ່ານມາ', 'ເພີ້ມປະຈຳປີ 2025-2026', 'ບໍລິຫານຫ້ອງການ/ບັນຊີ', 'ດຸໝັ່ນມາການ (ບໍ່ຂາດການ)', 'ພົວພັນວຽກທາງນອກ-ພາຍໃນ', 'ບັນຊີ ການເງີນວຽກອື່ນໆຂອງໂຮງຮຽນ']; } else if (d.includes('Invitational Teachers')) { earnings = ['ຊົ່ວໂມງສອນທັງໝົດ (Total Hours Taught)', 'ອັດຕາຊົ່ວໂມງ (Rate per Hour)', 'ເງີນເດືອນ']; } 
+                        defaultGSConfigs[d] = { name: d, earnings, deductions }; 
+                    } 
+                    const importedDeptNames = new Set(importedConfig.map(c => c.name)); 
+                    for (const gsDept of GS_DEPTS) { if (!importedDeptNames.has(gsDept)) { importedConfig.push(defaultGSConfigs[gsDept]); } } 
+                    
+                    if (importedConfig.length > 0) { 
+                        await transact(STORE_CONFIG, 'readwrite', s => s.clear()); 
+                        // PATCH: Ensure Lao fields exist for standard departments
+                        for (const c of importedConfig) {
+                            if (c.name !== 'English' && !c.name.includes('Accounts') && !c.name.includes('Invitational') && !isGSDepartment(c.name)) {
+                                // Re-enforce standard order for standard ACADEMIC departments only
+                                let newEarnings = [];
+                                const existingEarningsSet = new Set(c.earnings);
+                                laoEarningsStruct.forEach(field => {
+                                    if (existingEarningsSet.has(field)) {
+                                        newEarnings.push(field);
+                                        existingEarningsSet.delete(field);
+                                    }
+                                });
+                                // Add remaining custom fields
+                                existingEarningsSet.forEach(field => {
+                                    newEarnings.push(field);
+                                });
+                                // Fallback if crucial fields missing (unlikely if strictly followed logic, but safe)
+                                if (newEarnings.length === 0) newEarnings = [...laoEarningsStruct];
+                                
+                                c.earnings = newEarnings;
+                            }
+                            await transact(STORE_CONFIG, 'readwrite', s => s.put(c));
+                        }
+                        departmentConfigs = {}; 
+                        importedConfig.forEach(c => departmentConfigs[c.name] = { earnings: c.earnings, deductions: c.deductions }); 
+                    } 
+                    await transact(STORE_EMPLOYEES, 'readwrite', s => s.clear()); 
+                    for (const em of importedEmployees) { if(!em.payrollHistory) em.payrollHistory = {}; if(!em.savedPayroll) em.savedPayroll = {}; await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(em)); } 
+                    employees = importedEmployees;
+                    await transact(STORE_HISTORY, 'readwrite', s => s.clear()); 
+                    if (importedHistory) { for (const h of importedHistory) await transact(STORE_HISTORY, 'readwrite', s => s.put(h)); history = importedHistory; } 
+                    alert("Restore successful! Data cleaned and sanitized. Reloading..."); 
+                    // PERSISTENCE FIX: Ensure we stay in app mode
+                    localStorage.setItem('neerada_current_view', 'app');
+                    window.location.reload(); 
+                } catch (err) { alert("Error importing data: " + err.message); console.error("Import Error Details:", err); } 
+            }; reader.readAsText(file); input.value = ''; 
+        };
+        
+        // --- RENDER PREVIEW FUNCTION (Replaces text in preview pane) ---
+        function renderPreview() {
+            if(!selectedEmployee) return;
+            document.getElementById('prev-name').innerText = selectedEmployee.name;
+            document.getElementById('prev-pos').innerText = selectedEmployee.position;
+            document.getElementById('prev-dept').innerText = selectedEmployee.department;
+            const m = document.getElementById('editor-month').value;
+            const y = document.getElementById('editor-year').value;
+            document.getElementById('prev-id').innerText = generateEmployeeID(selectedEmployee, m, y);
+            document.getElementById('prev-date').innerText = new Date().toLocaleDateString();
             
-            // 1. Persistence Check: If previously in-app, skip landing
-            const currentView = localStorage.getItem('neerada_current_view');
-            if (currentView === 'app') {
-                 // Check if locked FIRST (via internal state updated by Firebase on init)
-                 if (isSystemLocked) {
-                     window.showLockScreen();
-                     return;
-                 }
-                 window.launchApp(true); // true = skip animation
+            const dept = selectedEmployee.department;
+            const cfg = departmentConfigs[dept] || { earnings: [], deductions: [] };
+            
+            let html = '<div class="space-y-4">';
+            
+            // EARNINGS
+            html += '<div class="border-b pb-2"><h4 class="font-bold text-xs uppercase text-gray-500 mb-2">Earnings</h4>';
+            html += '<table class="w-full text-xs">';
+            
+            if (dept === 'English') {
+                const d = currentPayrollState;
+                html += `<tr><td class="py-1">Basic Pay</td><td class="text-right font-mono">${formatUSD(d.basicPay)}</td></tr>`;
+                if(d.accumulated > 0) html += `<tr><td class="py-1">Accumulated</td><td class="text-right font-mono">${formatUSD(d.accumulated)}</td></tr>`;
+                if(d.increase > 0) html += `<tr><td class="py-1">Increase</td><td class="text-right font-mono">${formatUSD(d.increase)}</td></tr>`;
+                if(d.earningsOthersUSD > 0) html += `<tr><td class="py-1">Others</td><td class="text-right font-mono">${formatUSD(d.earningsOthersUSD)}</td></tr>`;
+                if(d.otHours > 0) html += `<tr><td class="py-1">Overtime (${d.otHours} hrs @ ${d.otRate})</td><td class="text-right font-mono">${formatUSD(d.otHours * d.otRate)}</td></tr>`;
+                // Extra Work LAK for English
+                if(d.itLAK > 0) html += `<tr><td class="py-1 text-purple-600">IT (LAK)</td><td class="text-right font-mono text-purple-600">${formatMoney(d.itLAK)}</td></tr>`;
+                if(d.extraWorkOthersLAK > 0) html += `<tr><td class="py-1 text-purple-600">Extra Work (LAK)</td><td class="text-right font-mono text-purple-600">${formatMoney(d.extraWorkOthersLAK)}</td></tr>`;
+                if(d.stipendLAK > 0) html += `<tr><td class="py-1 text-purple-600">Stipend (LAK)</td><td class="text-right font-mono text-purple-600">${formatMoney(d.stipendLAK)}</td></tr>`;
+
+            } else {
+                cfg.earnings.forEach(f => {
+                    const val = currentPayrollState[f] || 0;
+                    if(val > 0) {
+                        html += `<tr><td class="py-1 text-gray-700">${f}</td><td class="text-right font-mono text-gray-900 font-medium">${formatMoney(val)}</td></tr>`;
+                    }
+                });
+                if(currentPayrollState.overtimeAmount > 0) {
+                    html += `<tr><td class="py-1 text-blue-700 font-bold">Overtime</td><td class="text-right font-mono text-blue-700 font-bold">${formatMoney(currentPayrollState.overtimeAmount)}</td></tr>`;
+                }
+            }
+            html += '</table></div>';
+            
+            // DEDUCTIONS
+            html += '<div class="border-b pb-2"><h4 class="font-bold text-xs uppercase text-red-500 mb-2">Deductions</h4>';
+            html += '<table class="w-full text-xs text-red-600">';
+            
+            let totalDed = 0;
+            if (dept === 'English') {
+                const d = currentPayrollState;
+                if(d.profTax > 0) { html += `<tr><td class="py-1">Prof. Tax</td><td class="text-right font-mono">-${formatUSD(d.profTax)}</td></tr>`; totalDed += d.profTax; }
+                if(d.absences > 0) { html += `<tr><td class="py-1">Absences</td><td class="text-right font-mono">-${formatUSD(d.absences)}</td></tr>`; totalDed += d.absences; }
+                if(d.visa > 0) { html += `<tr><td class="py-1">Visa</td><td class="text-right font-mono">-${formatUSD(d.visa)}</td></tr>`; totalDed += d.visa; }
+                if(d.deductionsOthersUSD > 0) { html += `<tr><td class="py-1">Others</td><td class="text-right font-mono">-${formatUSD(d.deductionsOthersUSD)}</td></tr>`; totalDed += d.deductionsOthersUSD; }
+                // LAK Deductions for English
+                if(d.insuranceLAK > 0) { html += `<tr><td class="py-1">Insurance (LAK)</td><td class="text-right font-mono">-${formatMoney(d.insuranceLAK)}</td></tr>`; }
+                if(d.deductionsOthersLAK > 0) { html += `<tr><td class="py-1">Other LAK Ded.</td><td class="text-right font-mono">-${formatMoney(d.deductionsOthersLAK)}</td></tr>`; }
+            } else {
+                cfg.deductions.forEach(f => {
+                    const val = currentPayrollState[f] || 0;
+                    if(val > 0) {
+                        html += `<tr><td class="py-1">${f}</td><td class="text-right font-mono">-${formatMoney(val)}</td></tr>`;
+                        totalDed += val;
+                    }
+                });
+            }
+            
+            // Loan Deduction
+            if (currentPayrollState.loanDeduction > 0) {
+                 const desc = currentPayrollState.loanDesc ? ` (${currentPayrollState.loanDesc})` : '';
+                 html += `<tr><td class="py-1 font-bold">Loan Repayment${desc}</td><td class="text-right font-mono font-bold">-${formatMoney(currentPayrollState.loanDeduction)}</td></tr>`;
+            }
+            
+            html += '</table></div>';
+            
+            // NET PAY
+            const result = calculatePayrollFromState(selectedEmployee, currentPayrollState);
+            html += `<div id="net-pay-block" class="mt-4 p-3 bg-blue-900 text-white rounded-lg flex justify-between items-center shadow-lg">
+                <span class="text-sm font-bold uppercase">Net Pay</span>
+                <div class="text-right">
+                    <div class="text-xl font-mono font-bold">${formatMoney(result.lak)}</div>
+                    ${result.usd > 0 ? `<div class="text-xs text-blue-200">Cash USD: ${formatUSD(result.usd)}</div>` : ''}
+                </div>
+            </div>`;
+            
+            // Notes
+            if (currentPayrollState.notes) {
+                html += `<div class="mt-4 p-3 bg-yellow-50 border border-yellow-100 rounded text-xs text-gray-600 italic">Note: ${currentPayrollState.notes}</div>`;
             }
 
+            html += '</div>';
+            document.getElementById('preview-content').innerHTML = html;
+        }
+
+        function constructPayslipMessage() {
+            if(!selectedEmployee) return "";
+            const m = document.getElementById('editor-month').value;
+            const y = document.getElementById('editor-year').value;
+            const result = calculatePayrollFromState(selectedEmployee, currentPayrollState);
+            
+            let msg = `*PAYSLIP: ${selectedEmployee.name}*\n`;
+            msg += `Period: ${m} ${y}\n`;
+            msg += `------------------------\n`;
+            
+            const dept = selectedEmployee.department;
+            const cfg = departmentConfigs[dept] || { earnings: [], deductions: [] };
+            
+            if (dept === 'English') {
+                 const d = currentPayrollState;
+                 msg += `Basic Pay: ${formatUSD(d.basicPay)}\n`;
+                 if(d.otHours > 0) msg += `OT: ${d.otHours} hrs ($${d.otRate}/hr)\n`;
+            } else {
+                 cfg.earnings.forEach(f => {
+                      const val = currentPayrollState[f] || 0;
+                      if(val > 0) msg += `${f}: ${formatMoney(val)}\n`;
+                 });
+                 if(currentPayrollState.overtimeAmount > 0) msg += `OT: ${formatMoney(currentPayrollState.overtimeAmount)}\n`;
+            }
+            
+            msg += `------------------------\n`;
+            if (currentPayrollState.loanDeduction > 0) msg += `Loan Payment: -${formatMoney(currentPayrollState.loanDeduction)}\n`;
+            
+            msg += `*NET PAY: ${formatMoney(result.lak)}*\n`;
+            if(result.usd > 0) msg += `(Cash USD: ${formatUSD(result.usd)})\n`;
+            
+            return msg;
+        }
+
+        window.onload = function() { 
+            if (window.lucide) lucide.createIcons();
+            
+            // Load logo locally for immediate visual, then Firebase will overwrite if newer
+            const savedLogo = localStorage.getItem('neerada_school_logo');
+            if(savedLogo) {
+                 window.updateLogoDOM(savedLogo);
+            }
+
+            // Check Lock State Immediately
+            if (localStorage.getItem('neerada_locked') === 'true') {
+                window.showLockScreen();
+                return; // Stop view transitions
+            }
+            
             // Auto-exit welcome modal if exists
             setTimeout(() => {
                 const wm = document.getElementById('welcome-modal');
