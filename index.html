@@ -1966,7 +1966,7 @@
                       if (f !== 'Basic Pay (USD)' && f !== 'Exchange Rate (LAK)') {
                           if (startIndex !== -1) {
                              if (currIndex >= startIndex) {
-                                 te += v;
+                                  te += v;
                              }
                           } else {
                              // Fallback if 'Start' field missing from config
@@ -3182,10 +3182,6 @@
                 try {
                     const data = JSON.parse(e.target.result);
                     if(confirm("This will overwrite existing local data. Continue?")) {
-                        // Clear existing
-                        // We do a merge strategy or clear all. Let's do clear all for clean restore.
-                        // Actually, indexedDB clear is safer.
-                        
                         // Restore Configs
                         if(data.configs) {
                             for(const k in data.configs) {
