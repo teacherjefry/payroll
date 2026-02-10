@@ -1191,23 +1191,23 @@
                         adminCode = data.adminCode;
                         window.setAdminCode(data.adminCode); // Sync to standard script
                     }
-                    // Logo - Save to LocalStorage for persistence and fast load
+                    // Logo - Fetch from Firestore strictly
                     if (data.logo) {
-                        localStorage.setItem('neerada_school_logo', data.logo);
                         window.updateLogoDOM(data.logo);
                     }
-                    // Theme
+                    // Theme - Fetch from Firestore strictly
                     if (data.theme) {
                         window.setTheme(data.theme, false);
                     }
                     
-                    // Lock State - Sync from Cloud
+                    // Lock State - Sync from Cloud strictly
                     if (data.isLocked === true) {
-                         localStorage.setItem('neerada_locked', 'true');
-                         if(data.lockMsg) localStorage.setItem('neerada_lock_msg', data.lockMsg);
+                         // Update global lock state variable for launch checks
+                         window.setSystemLocked(true);
+                         if(data.lockMsg) document.getElementById('lock-message').innerText = data.lockMsg;
                          window.showLockScreen();
-                    } else if (data.isLocked === false) {
-                         localStorage.removeItem('neerada_locked');
+                    } else {
+                         window.setSystemLocked(false);
                          document.getElementById('system-lock-overlay').classList.add('hidden');
                          document.getElementById('system-lock-overlay').classList.remove('flex');
                     }
@@ -1246,16 +1246,19 @@
     <script>
         // --- VIEW MANAGEMENT ---
         let localAdminCode = "0000";
+        let isSystemLocked = false; // Internal state for lock status
+
         window.setAdminCode = (code) => { localAdminCode = code; };
+        window.setSystemLocked = (val) => { isSystemLocked = val; };
+
         // We defer to the module script for getAdminCode if available, otherwise use local
-        // Note: The module script overwrites this usually, but we keep a fallback.
         if (!window.getAdminCode) {
              window.getAdminCode = () => localAdminCode;
         }
 
         window.launchApp = function(skipAnim = false) {
-            // Check Lock
-            if (localStorage.getItem('neerada_locked') === 'true') {
+            // Check Lock State (set via Firebase callback)
+            if (isSystemLocked) {
                 window.showLockScreen();
                 return;
             }
@@ -1371,9 +1374,14 @@
                 
                 if (code === storedCode) {
                     const msg = prompt("Enter lock message (optional):") || "System Unavailable";
-                    localStorage.setItem('neerada_locked', 'true');
-                    localStorage.setItem('neerada_lock_msg', msg);
+                    
+                    // Update global state immediately
+                    isSystemLocked = true;
+                    document.getElementById('lock-message').innerText = msg;
+                    
+                    // Save ONLY to Firebase, no LocalStorage
                     if(window.saveGlobalSettings) window.saveGlobalSettings({ isLocked: true, lockMsg: msg });
+                    
                     window.showLockScreen();
                 } else {
                     alert("Access Denied");
@@ -1383,9 +1391,7 @@
 
         window.showLockScreen = function() {
             const overlay = document.getElementById('system-lock-overlay');
-            const msgEl = document.getElementById('lock-message');
-            
-            msgEl.innerText = localStorage.getItem('neerada_lock_msg') || "System Unavailable";
+            // Message is updated via state/settings logic
             overlay.classList.remove('hidden');
             overlay.classList.add('flex');
             
@@ -1399,9 +1405,12 @@
                 const storedCode = (window.getAdminCode && window.getAdminCode()) || "0000";
 
                 if (code === storedCode) {
-                    localStorage.removeItem('neerada_locked');
-                    localStorage.removeItem('neerada_lock_msg');
+                    // Update Global State
+                    isSystemLocked = false;
+                    
+                    // Save ONLY to Firebase
                     if(window.saveGlobalSettings) window.saveGlobalSettings({ isLocked: false, lockMsg: "" });
+                    
                     document.getElementById('system-lock-overlay').classList.add('hidden');
                     document.getElementById('system-lock-overlay').classList.remove('flex');
                     
@@ -1546,12 +1555,10 @@
                 employees = await transact(STORE_EMPLOYEES, 'readonly', (s) => s.getAll());
                 history = await transact(STORE_HISTORY, 'readonly', (s) => s.getAll());
 
-                const savedTheme = localStorage.getItem('neerada_theme') || 'default';
-                if(document.body.classList.contains('view-app')) document.body.classList.add(`theme-${savedTheme}`);
-                
-                const savedLogo = localStorage.getItem('neerada_school_logo');
-                if (savedLogo) {
-                   window.updateLogoDOM(savedLogo);
+                // Theme is now loaded via loadGlobalSettings, not LocalStorage
+                // We keep a default fallback class just in case
+                if(document.body.classList.contains('view-app') && !document.body.className.includes('theme-')) {
+                    document.body.classList.add('theme-default');
                 }
 
                 setupYearSelectors(); setupMonthSelectors(); window.updateDashboardStats(); renderDeptSidebar(); renderEmployeeList();
@@ -2041,11 +2048,10 @@
                     // Compress to JPEG 0.8 quality
                     const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
                     
-                    // Update Local State
-                    localStorage.setItem('neerada_school_logo', dataUrl);
+                    // Update DOM
                     window.updateLogoDOM(dataUrl);
                     
-                    // Save to Firestore
+                    // Save to Firestore (Strictly NO LocalStorage)
                     window.saveGlobalSettings({ logo: dataUrl });
                     alert("Logo updated and synced to cloud.");
                 };
@@ -2158,7 +2164,12 @@
         window.handleStaffCSV = (input) => { const file = input.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = async (e) => { const text = e.target.result; const rows = text.split('\n').filter(r => r.trim()); if (rows.length < 2) return alert("Invalid CSV"); for (let i = 1; i < rows.length; i++) { const cols = rows[i].split(',').map(c => c.replace(/^"|"$/g, '').trim()); if (cols.length < 3) continue; const id = 'EMP_' + Date.now() + i; const name = cols[2]; const dept = cols[4]; const pos = cols[5]; await transact(STORE_EMPLOYEES, 'readwrite', s => s.put({ id, name, department: dept, position: pos, payrollHistory: {}, campus: "General Services" })); } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); renderEmployeeList(); renderDeptSidebar(); }; reader.readAsText(file); };
         window.triggerImport = () => document.getElementById('staff-csv-input').click();
         window.deleteAllPhotos = async () => { if (!confirm("Remove all employee photos?")) return; for (const emp of employees) { emp.profilePic = null; await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(emp)); } employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll()); renderEmployeeList(); };
-        window.setTheme = (theme, save = true) => { localStorage.setItem('neerada_theme', theme); document.body.className = `view-app theme-${theme}`; if(save && window.saveGlobalSettings) window.saveGlobalSettings({ theme: theme }); };
+        window.setTheme = (theme, save = true) => { 
+            // Theme is now managed via global settings object from Firebase
+            // Local persistence removed as per request
+            document.body.className = `view-app theme-${theme}`; 
+            if(save && window.saveGlobalSettings) window.saveGlobalSettings({ theme: theme }); 
+        };
         window.downloadCSVReport = () => { 
             const yrFilter = document.getElementById('filter-year').value; 
             const mnFilter = document.getElementById('filter-month').value; 
@@ -2916,264 +2927,6 @@
             reader.readAsText(file);
         };
 
-        // --- RENDER PREVIEW FUNCTION (Replaces text in preview pane) ---
-        function renderPreview() {
-            if(!selectedEmployee) return;
-            document.getElementById('prev-name').innerText = selectedEmployee.name;
-            document.getElementById('prev-pos').innerText = selectedEmployee.position;
-            document.getElementById('prev-dept').innerText = selectedEmployee.department;
-            const m = document.getElementById('editor-month').value;
-            const y = document.getElementById('editor-year').value;
-            document.getElementById('prev-id').innerText = generateEmployeeID(selectedEmployee, m, y);
-            document.getElementById('prev-date').innerText = new Date().toLocaleDateString();
-            
-            const dept = selectedEmployee.department;
-            const cfg = departmentConfigs[dept] || { earnings: [], deductions: [] };
-            
-            let html = '<div class="space-y-4">';
-            
-            // EARNINGS
-            html += '<div class="border-b pb-2"><h4 class="font-bold text-xs uppercase text-gray-500 mb-2">Earnings</h4>';
-            html += '<table class="w-full text-xs">';
-            
-            if (dept === 'English') {
-                const d = currentPayrollState;
-                html += `<tr><td class="py-1">Basic Pay</td><td class="text-right font-mono">${formatUSD(d.basicPay)}</td></tr>`;
-                if(d.accumulated > 0) html += `<tr><td class="py-1">Accumulated</td><td class="text-right font-mono">${formatUSD(d.accumulated)}</td></tr>`;
-                if(d.increase > 0) html += `<tr><td class="py-1">Increase</td><td class="text-right font-mono">${formatUSD(d.increase)}</td></tr>`;
-                if(d.earningsOthersUSD > 0) html += `<tr><td class="py-1">Others</td><td class="text-right font-mono">${formatUSD(d.earningsOthersUSD)}</td></tr>`;
-                if(d.otHours > 0) html += `<tr><td class="py-1">Overtime (${d.otHours} hrs @ ${d.otRate})</td><td class="text-right font-mono">${formatUSD(d.otHours * d.otRate)}</td></tr>`;
-                // Extra Work LAK for English
-                if(d.itLAK > 0) html += `<tr><td class="py-1 text-purple-600">IT (LAK)</td><td class="text-right font-mono text-purple-600">${formatMoney(d.itLAK)}</td></tr>`;
-                if(d.extraWorkOthersLAK > 0) html += `<tr><td class="py-1 text-purple-600">Extra Work (LAK)</td><td class="text-right font-mono text-purple-600">${formatMoney(d.extraWorkOthersLAK)}</td></tr>`;
-                if(d.stipendLAK > 0) html += `<tr><td class="py-1 text-purple-600">Stipend (LAK)</td><td class="text-right font-mono text-purple-600">${formatMoney(d.stipendLAK)}</td></tr>`;
-
-            } else {
-                cfg.earnings.forEach(f => {
-                    const val = currentPayrollState[f] || 0;
-                    if(val > 0) {
-                        html += `<tr><td class="py-1 text-gray-700">${f}</td><td class="text-right font-mono text-gray-900 font-medium">${formatMoney(val)}</td></tr>`;
-                    }
-                });
-                if(currentPayrollState.overtimeAmount > 0) {
-                    html += `<tr><td class="py-1 text-blue-700 font-bold">Overtime</td><td class="text-right font-mono text-blue-700 font-bold">${formatMoney(currentPayrollState.overtimeAmount)}</td></tr>`;
-                }
-            }
-            html += '</table></div>';
-            
-            // DEDUCTIONS
-            html += '<div class="border-b pb-2"><h4 class="font-bold text-xs uppercase text-red-500 mb-2">Deductions</h4>';
-            html += '<table class="w-full text-xs text-red-600">';
-            
-            let totalDed = 0;
-            if (dept === 'English') {
-                const d = currentPayrollState;
-                if(d.profTax > 0) { html += `<tr><td class="py-1">Prof. Tax</td><td class="text-right font-mono">-${formatUSD(d.profTax)}</td></tr>`; totalDed += d.profTax; }
-                if(d.absences > 0) { html += `<tr><td class="py-1">Absences</td><td class="text-right font-mono">-${formatUSD(d.absences)}</td></tr>`; totalDed += d.absences; }
-                if(d.visa > 0) { html += `<tr><td class="py-1">Visa</td><td class="text-right font-mono">-${formatUSD(d.visa)}</td></tr>`; totalDed += d.visa; }
-                if(d.deductionsOthersUSD > 0) { html += `<tr><td class="py-1">Others</td><td class="text-right font-mono">-${formatUSD(d.deductionsOthersUSD)}</td></tr>`; totalDed += d.deductionsOthersUSD; }
-                // LAK Deductions for English
-                if(d.insuranceLAK > 0) { html += `<tr><td class="py-1">Insurance (LAK)</td><td class="text-right font-mono">-${formatMoney(d.insuranceLAK)}</td></tr>`; }
-                if(d.deductionsOthersLAK > 0) { html += `<tr><td class="py-1">Other LAK Ded.</td><td class="text-right font-mono">-${formatMoney(d.deductionsOthersLAK)}</td></tr>`; }
-            } else {
-                cfg.deductions.forEach(f => {
-                    const val = currentPayrollState[f] || 0;
-                    if(val > 0) {
-                        html += `<tr><td class="py-1">${f}</td><td class="text-right font-mono">-${formatMoney(val)}</td></tr>`;
-                        totalDed += val;
-                    }
-                });
-            }
-            
-            // Loan Deduction
-            if (currentPayrollState.loanDeduction > 0) {
-                 const desc = currentPayrollState.loanDesc ? ` (${currentPayrollState.loanDesc})` : '';
-                 html += `<tr><td class="py-1 font-bold">Loan Repayment${desc}</td><td class="text-right font-mono font-bold">-${formatMoney(currentPayrollState.loanDeduction)}</td></tr>`;
-            }
-            
-            html += '</table></div>';
-            
-            // NET PAY
-            const result = calculatePayrollFromState(selectedEmployee, currentPayrollState);
-            html += `<div id="net-pay-block" class="mt-4 p-3 bg-blue-900 text-white rounded-lg flex justify-between items-center shadow-lg">
-                <span class="text-sm font-bold uppercase">Net Pay</span>
-                <div class="text-right">
-                    <div class="text-xl font-mono font-bold">${formatMoney(result.lak)}</div>
-                    ${result.usd > 0 ? `<div class="text-xs text-blue-200">Cash USD: ${formatUSD(result.usd)}</div>` : ''}
-                </div>
-            </div>`;
-            
-            // Notes
-            if (currentPayrollState.notes) {
-                html += `<div class="mt-4 p-3 bg-yellow-50 border border-yellow-100 rounded text-xs text-gray-600 italic">Note: ${currentPayrollState.notes}</div>`;
-            }
-
-            html += '</div>';
-            document.getElementById('preview-content').innerHTML = html;
-        }
-
-        function constructPayslipMessage() {
-            if(!selectedEmployee) return "";
-            const m = document.getElementById('editor-month').value;
-            const y = document.getElementById('editor-year').value;
-            const result = calculatePayrollFromState(selectedEmployee, currentPayrollState);
-            
-            let msg = `*PAYSLIP: ${selectedEmployee.name}*\n`;
-            msg += `Period: ${m} ${y}\n`;
-            msg += `------------------------\n`;
-            
-            const dept = selectedEmployee.department;
-            const cfg = departmentConfigs[dept] || { earnings: [], deductions: [] };
-            
-            if (dept === 'English') {
-                 const d = currentPayrollState;
-                 msg += `Basic Pay: ${formatUSD(d.basicPay)}\n`;
-                 if(d.otHours > 0) msg += `OT: ${d.otHours} hrs ($${d.otRate}/hr)\n`;
-            } else {
-                 cfg.earnings.forEach(f => {
-                      const val = currentPayrollState[f] || 0;
-                      if(val > 0) msg += `${f}: ${formatMoney(val)}\n`;
-                 });
-                 if(currentPayrollState.overtimeAmount > 0) msg += `OT: ${formatMoney(currentPayrollState.overtimeAmount)}\n`;
-            }
-            
-            msg += `------------------------\n`;
-            if (currentPayrollState.loanDeduction > 0) msg += `Loan Payment: -${formatMoney(currentPayrollState.loanDeduction)}\n`;
-            
-            msg += `*NET PAY: ${formatMoney(result.lak)}*\n`;
-            if(result.usd > 0) msg += `(Cash USD: ${formatUSD(result.usd)})\n`;
-            
-            return msg;
-        }
-
-        // --- NEW HELPER FUNCTIONS ADDED TO FIX MISSING REFERENCES ---
-        window.openSettings = () => { document.getElementById('settings-modal').classList.remove('hidden'); document.getElementById('settings-modal').classList.add('flex'); };
-        window.closeSettings = () => { document.getElementById('settings-modal').classList.add('hidden'); document.getElementById('settings-modal').classList.remove('flex'); };
-        window.openPrintSettings = () => { document.getElementById('print-modal').classList.remove('hidden'); document.getElementById('print-modal').classList.add('flex'); };
-        window.closePrintSettings = () => { document.getElementById('print-modal').classList.add('hidden'); document.getElementById('print-modal').classList.remove('flex'); };
-        window.openGlobalArchives = () => {
-             // Populate archives
-             const list = document.getElementById('global-archive-list');
-             let html = '';
-             let hasRows = false;
-             employees.forEach(emp => {
-                 if(emp.archivedLoans && emp.archivedLoans.length > 0) {
-                     emp.archivedLoans.forEach(l => {
-                         hasRows = true;
-                         html += `<tr>
-                            <td class="px-4 py-3 font-medium text-gray-800">${emp.name}</td>
-                            <td class="px-4 py-3 text-xs text-gray-500">${emp.department}</td>
-                            <td class="px-4 py-3">${l.description}</td>
-                            <td class="px-4 py-3 text-center text-xs text-gray-500">${l.dateAdded || '-'}</td>
-                            <td class="px-4 py-3 text-right font-mono">${formatMoney(l.total)}</td>
-                            <td class="px-4 py-3 text-center"><span class="bg-gray-100 text-gray-600 px-2 py-1 rounded text-[10px] uppercase font-bold">Archived</span></td>
-                         </tr>`;
-                     });
-                 }
-             });
-             list.innerHTML = hasRows ? html : `<tr><td colspan="6" class="p-6 text-center text-gray-400">No archived loans found globally.</td></tr>`;
-             document.getElementById('global-archive-modal').classList.remove('hidden');
-             document.getElementById('global-archive-modal').classList.add('flex');
-        };
-
-        window.bulkSavePayroll = async () => {
-             if(!confirm("This will save the current month's data for all currently filtered employees to history. Continue?")) return;
-             
-             let filtered = employees;
-             if (currentFilter.campus !== 'All') filtered = filtered.filter(e => e.campus === currentFilter.campus);
-             if (currentFilter.department !== 'All') filtered = filtered.filter(e => e.department === currentFilter.department);
-             
-             const m = document.getElementById('editor-month').value;
-             const y = document.getElementById('editor-year').value;
-             const key = `${y}-${m}`;
-             
-             let updated = 0;
-             for (const emp of filtered) {
-                 if (!emp.payrollHistory) emp.payrollHistory = {};
-                 // Only save if no entry exists or user wants to overwrite (implicit in bulk save usually means ensure record exists)
-                 // But let's be safe: if exists, we update timestamp. If not, we create default.
-                 // Actually, better logic: If entry exists, keep it. If not, create default and save.
-                 if (!emp.payrollHistory[key]) {
-                     emp.payrollHistory[key] = createInitialState(emp.department);
-                     // Auto-calc fields
-                     recalculatePayrollState(emp.department, emp.payrollHistory[key]);
-                     emp.lastModified = new Date().toISOString();
-                     await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(emp));
-                     updated++;
-                 }
-             }
-             
-             // Refresh
-             employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll());
-             window.updateDashboardStats();
-             alert(`Bulk process complete. Created records for ${updated} staff who had no data for ${m} ${y}.`);
-        };
-
-        window.bulkResetPayroll = async () => {
-             if(!confirm("WARNING: This will RESET the current month's data for all currently filtered employees to zero/default. Existing data for this month will be lost. Continue?")) return;
-             
-             let filtered = employees;
-             if (currentFilter.campus !== 'All') filtered = filtered.filter(e => e.campus === currentFilter.campus);
-             if (currentFilter.department !== 'All') filtered = filtered.filter(e => e.department === currentFilter.department);
-             
-             const m = document.getElementById('editor-month').value;
-             const y = document.getElementById('editor-year').value;
-             const key = `${y}-${m}`;
-             
-             for (const emp of filtered) {
-                 if (!emp.payrollHistory) emp.payrollHistory = {};
-                 emp.payrollHistory[key] = createInitialState(emp.department);
-                 emp.lastModified = new Date().toISOString();
-                 await transact(STORE_EMPLOYEES, 'readwrite', s => s.put(emp));
-             }
-             
-             employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll());
-             if (selectedEmployee) loadPeriodData();
-             window.updateDashboardStats();
-             alert("Bulk reset complete.");
-        };
-
-        window.deleteAllEmployeesInFilter = async () => {
-             if (currentFilter.department === 'All') return alert("Please select a specific department first to avoid accidental mass deletion.");
-             if(!confirm(`DANGER: Are you sure you want to DELETE ALL employees in the '${currentFilter.department}' department? This cannot be undone.`)) return;
-             
-             let filtered = employees;
-             if (currentFilter.campus !== 'All') filtered = filtered.filter(e => e.campus === currentFilter.campus);
-             if (currentFilter.department !== 'All') filtered = filtered.filter(e => e.department === currentFilter.department);
-             
-             for (const emp of filtered) {
-                 await transact(STORE_EMPLOYEES, 'readwrite', s => s.delete(emp.id));
-             }
-             
-             employees = await transact(STORE_EMPLOYEES, 'readonly', s => s.getAll());
-             selectedEmployee = null;
-             document.getElementById('editor-area').classList.add('hidden');
-             document.getElementById('empty-state').classList.remove('hidden');
-             renderEmployeeList();
-             renderDeptSidebar();
-             window.updateDashboardStats();
-             alert("Bulk deletion complete.");
-        };
-        
-        window.exportData = async () => {
-            const allData = {
-                employees: employees,
-                history: history,
-                configs: departmentConfigs,
-                meta: { version: "2026_Unified", date: new Date().toISOString() }
-            };
-            const json = JSON.stringify(allData, null, 2);
-            const blob = new Blob([json], {type: "application/json"});
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `Neerada_Backup_${new Date().toISOString().split('T')[0]}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        };
-
         window.importData = (input) => {
             const file = input.files[0];
             if(!file) return;
@@ -3219,26 +2972,14 @@
             // 1. Persistence Check: If previously in-app, skip landing
             const currentView = localStorage.getItem('neerada_current_view');
             if (currentView === 'app') {
-                 // Check if locked FIRST
-                 if (localStorage.getItem('neerada_locked') === 'true') {
+                 // Check if locked FIRST (via internal state updated by Firebase on init)
+                 if (isSystemLocked) {
                      window.showLockScreen();
                      return;
                  }
                  window.launchApp(true); // true = skip animation
             }
 
-            // 2. Load logo locally for immediate visual, then Firebase will overwrite if newer
-            const savedLogo = localStorage.getItem('neerada_school_logo');
-            if(savedLogo) {
-                 window.updateLogoDOM(savedLogo);
-            }
-
-            // 3. Check Lock State Immediately (Redundant safety check)
-            if (localStorage.getItem('neerada_locked') === 'true') {
-                window.showLockScreen();
-                return; // Stop view transitions
-            }
-            
             // Auto-exit welcome modal if exists
             setTimeout(() => {
                 const wm = document.getElementById('welcome-modal');
